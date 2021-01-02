@@ -1,0 +1,23 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30804.86
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{888888A0-9F3D-457C-B088-3A5042F75D52}") = "Mqtt2DbUpdater", "Mqtt2DbUpdater.pyproj", "{FB26989C-8321-43E7-BCCE-2C763DDA9554}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{FB26989C-8321-43E7-BCCE-2C763DDA9554}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{FB26989C-8321-43E7-BCCE-2C763DDA9554}.Release|Any CPU.ActiveCfg = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {0DCDFB73-2047-4D5A-82DA-D9E92E52AF5C}
+	EndGlobalSection
+EndGlobal

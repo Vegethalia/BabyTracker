@@ -4,3 +4,5 @@
 .vscode/launch.json
 .vscode/ipch
 src/mykeys.h
+src/Py/BabyTracker/Lib/
+src/Py/__pycache__/
