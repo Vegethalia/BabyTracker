@@ -37,7 +37,7 @@ deactivate () {
 # unset irrelevant variables
 deactivate nondestructive
 
-VIRTUAL_ENV="E:\Projectes\Pchan\BabyTracker\src\Py\BabyTracker"
+VIRTUAL_ENV="E:\Projectes\Pleyha\BabyTracker\src\Py\BabyTracker"
 export VIRTUAL_ENV
 
 _OLD_VIRTUAL_PATH="$PATH"

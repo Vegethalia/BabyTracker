@@ -5,14 +5,16 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{fb26989c-8321-43e7-bcce-2c763dda9554}</ProjectGuid>
     <ProjectHome />
-    <StartupFile>Mqtt2DbUpdater.py</StartupFile>
+    <StartupFile>TestMapbox.py</StartupFile>
     <SearchPath />
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
     <ProjectTypeGuids>{888888a0-9f3d-457c-b088-3a5042f75d52}</ProjectTypeGuids>
     <LaunchProvider>Standard Python launcher</LaunchProvider>
-    <InterpreterId>MSBuild|BabyTracker|$(MSBuildProjectFullPath)</InterpreterId>
+    <InterpreterId>CondaEnv|CondaEnv|BabyTrackerConda</InterpreterId>
     <Name>Mqtt2DbUpdater</Name>
+    <SuppressPackageInstallationPrompt>True</SuppressPackageInstallationPrompt>
+    <SuppressConfigureTestFrameworkPrompt>true</SuppressConfigureTestFrameworkPrompt>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'" />
   <PropertyGroup Condition="'$(Configuration)' == 'Release'" />
@@ -21,6 +23,15 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="DbAccess.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="TestMapbox.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="TestGeopanda.py">
+      <SubType>Code</SubType>
+    </Compile>
+    <Compile Include="ShowTracks.py">
       <SubType>Code</SubType>
     </Compile>
     <Compile Include="Mqtt2DbUpdater.py" />
@@ -41,6 +52,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="requirements.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <InterpreterReference Include="CondaEnv|CondaEnv|BabyTrackerConda" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
 </Project>

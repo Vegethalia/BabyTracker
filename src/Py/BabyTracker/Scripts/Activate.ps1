@@ -27,7 +27,7 @@ function global:deactivate ([switch]$NonDestructive) {
 
 deactivate -nondestructive
 
-$env:VIRTUAL_ENV="E:\Projectes\Pchan\BabyTracker\src\Py\BabyTracker"
+$env:VIRTUAL_ENV="E:\Projectes\Pleyha\BabyTracker\src\Py\BabyTracker"
 
 if (! $env:VIRTUAL_ENV_DISABLE_PROMPT) {
     # Set the prompt to include the env name
