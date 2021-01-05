@@ -24,7 +24,7 @@ def OnMessageReceived(client, userdata, msg):
 	#messages are like: "1, 1609515744, 41.472366, 2.043975, 0, 0.000000"
 	trackMsg=str(msg.payload).split(",")
 	if len(trackMsg) == 6:
-		_MyDb.InsertNewEntry(trackMsg[0], trackMsg[1], trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5])
+		_MyDb.InsertNewEntry(trackMsg[0], trackMsg[1], trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5]) #we don't care if the insert fails....
 		
 
 
