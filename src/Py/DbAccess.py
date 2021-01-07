@@ -1,6 +1,6 @@
 import mysql.connector
 import time
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone, date,timedelta
 import pandas as pd
 
 
@@ -69,13 +69,14 @@ class BabyTrackerDB:
 
     return self._dbCNX and self._dbCNX.is_connected()
 
-  def GetTracks(self,IDTracker,fromData: datetime=None, numRetries=10):
+  def GetTracks(self,IDTracker,numLimit,fromData: datetime=None, numRetries=10):
     if(fromData is None): 
         fromData=date.today()
+    fromData=fromData + timedelta(days=1)
     if not self.__EnsureDbConnected(numRetries):
         return False
-    sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate<=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT 10"
+    sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate<=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT %s"
     mycursor = self._dbCNX.cursor()
-    df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData))
+    df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData,numLimit))
     mycursor.close()
     return df
