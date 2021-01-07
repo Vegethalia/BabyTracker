@@ -23,12 +23,16 @@ class BabyTrackerDB:
     if not self.__EnsureDbConnected(numRetries):
       return False
 
-    theDate=datetime.fromtimestamp(int(theDate)) #, tzinfo=timezone('Etc/GMT+1')
-    mycursor = self._dbCNX.cursor()
-    sql="INSERT INTO LocationHistory (IDTRACKER, LocDate, Latitude, Longitude, Altitude, Speed) VALUES (%s, %s, %s, %s, %s, %s)"
-    values=(idTracker, theDate, latitude, longitude, altitude, speed)
-    mycursor.execute(sql, values)
-    self._dbCNX.commit()
+    try:
+      theDate=datetime.fromtimestamp(int(theDate)) #, tzinfo=timezone('Etc/GMT+1')
+      mycursor = self._dbCNX.cursor()
+      sql="INSERT INTO LocationHistory (IDTRACKER, LocDate, Latitude, Longitude, Altitude, Speed) VALUES (%s, %s, %s, %s, %s, %s)"
+      values=(idTracker, theDate, latitude, longitude, altitude, speed)
+      mycursor.execute(sql, values)
+      self._dbCNX.commit()
+    except Exception as err:
+      print("Exception trying to insert into DB!: ", err)
+
 
   def __Connect(self):
     """Tries to connect to the mysql db. Returns true or false"""

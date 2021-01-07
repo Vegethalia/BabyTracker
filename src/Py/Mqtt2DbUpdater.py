@@ -1,10 +1,14 @@
 import paho.mqtt.client as mqtt
 import DbAccess as db
 import Params
+import time
 from datetime import datetime
 
+MQTTBROKER="192.168.1.140"
+MQTTPORT=1888
 TOPIC_DEBUG ="PChan/Debug"
 TOPIC_BABYTRACKER = "babytracker/loc"
+
 
 #dbuser=babytrack
 #dbpass=@BabyTrack3r
@@ -24,18 +28,32 @@ def OnMessageReceived(client, userdata, msg):
 	#messages are like: "1, 1609515744, 41.472366, 2.043975, 0, 0.000000"
 	trackMsg=str(msg.payload).split(",")
 	if len(trackMsg) == 6:
-		_MyDb.InsertNewEntry(trackMsg[0], trackMsg[1], trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5])
+		_MyDb.InsertNewEntry(trackMsg[0], trackMsg[1], trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5]) #we don't care if the insert fails....
 		
+def Connect2Mqtt():
+	"""Tries to connect to the mqtt broker, and waits if the connection is not possible"""
+	myClient=mqtt.Client("PchanUpdater", False)
+	myClient.on_message=OnMessageReceived
+
+	isOk=False
+	while not isOk:
+		try:
+			myClient.connect(MQTTBROKER, MQTTPORT) #"mitotoro.synology.me"
+			myClient.subscribe(TOPIC_BABYTRACKER)
+			isOk=True
+		except:
+			print("It was not possible to connect to the MQTT broker [",MQTTBROKER,":",MQTTPORT,"]. Waiting 10s...")
+			time.sleep(10)
+
+	return myClient
 
 
 ##########################
 # MAIN PROGRAM STARTS HERE 😊
 ########################## 
-_myClient=mqtt.Client("PchanUpdater", False)
-_myClient.on_message=OnMessageReceived
-_myClient.connect("192.168.1.140", 1888) #"mitotoro.synology.me"
-
-_myClient.subscribe(TOPIC_BABYTRACKER, )
+print("Starting MQTT 2 DB updater...")
+_myClient=Connect2Mqtt()
+print("Mqtt client connected to broker [",MQTTBROKER,":",MQTTPORT,"] successfully! Topic=[",TOPIC_BABYTRACKER,"]")
 PublishText(TOPIC_DEBUG, "Starting Python Updater")
 
 _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.DB_DATABASE, Params.DB_PORT)
