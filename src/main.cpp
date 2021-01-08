@@ -15,6 +15,18 @@
 #include "SharedUtils/Utils.h"
 //#include "SharedUtils/ScreenDebugger.h" //to use the screen as a debugger
 
+#define ALWAYS_ON        true
+#define CONTROL_VOLTAGE  false //if true, PIN_BAT will be used to read the voltage of the battery
+
+#define MAX_VOLTAGE      4.19f
+#define MIN_VOLTAGE      3.40f
+#define MAX_VOLTAGE_READ 576
+
+#define LED_ON_TIME      250
+#define LED_LOCATING_OFF LED_ON_TIME
+#define LED_FIXED_OFF    (LED_ON_TIME*4)
+#define LED_GSMERROR_OFF (LED_ON_TIME/2)
+
 #define SIM800L_IP5306_VERSION_20200811
 #include "SharedUtils/lilygo_utils.h"
 
@@ -23,15 +35,23 @@
 #define PIN_I2C_SDA 21
 #define PIN_I2C_SCL 22
 #define PIN_ENABLE  12
+#define PIN_BAT     15
+#define PIN_LED     2
 
 #define SCREEN_WIDTH   128 // OLED display width, in pixels
 #define SCREEN_HEIGHT  64 // OLED display height, in pixels
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
 
 // ADAFRUIT Feeds / Related stuff
-#define ADAFRUIT_ADDR      "52.7.124.212" //"io.adafruit.com"
-#define ADAFRUIT_PORT      1883
-#define FEED_LOCATION      "/feeds/location/csv" //sensor_value,latitude,longitude,elevation
+// #define ADAFRUIT_ADDR      "52.7.124.212" //"io.adafruit.com"
+// #define ADAFRUIT_PORT      1883
+// #define FEED_LOCATION      "/feeds/location/csv" //sensor_value,latitude,longitude,elevation
+
+#define TRACKER_ID       1 //this is the 1st tracker!
+#define MQTT_BROKER      "mitotoro.synology.me"
+#define MQTT_PORT        1888
+#define FEED_BABYTRACKER "babytracker/loc" //ID,datetime,latitude,longitude,elevation,speed
+#define FEED_BATTERY     "babytracker/bat" //ID,datetime,latitude,longitude,elevation,speed
 
 //U8G2_SH1106_128X64_NONAME_2_HW_I2C u8g2(U8G2_R0, PIN_I2C_SCL, PIN_I2C_SDA);
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C _u8g2(U8G2_R0, PIN_I2C_SCL, PIN_I2C_SDA);
@@ -60,13 +80,20 @@ NMEAGPS         _TheNeoGps; // This object parses the GPS characters
 gps_fix         _TheFix;    // This global structure contains the GPS fix returned by _TheNeoGps
 
 //TIMING VARS
-unsigned long _delayTimeUpt = 30000;
+unsigned long _delayTimeUpt = 60000;
 unsigned long _lastProcessMillis = 0;
 unsigned long _LastFixed = 0;
+unsigned long _lastLedChange = 0;
 uint8_t       _GprsErrorCount = 0;
 int           _timeout = 0;
 uint16_t      _sleepForSecs = 60;
 uint16_t      _FixedLoops = 0;
+bool          _ModemInitialized = false;
+bool          _ScreenInitialized = false;
+bool          _LedON = false;
+uint8_t       _LedBlinks=0; //Counts the number of led blinks since the last _LedBlinks=0
+uint16_t      _LastVoltageRead = MAX_VOLTAGE_READ;
+unsigned long _lastVoltageUpd = 0;
 
 //FORWARD DECLARATIONS
 void DrawScreen();
@@ -76,6 +103,8 @@ bool verifyGPRSConnection();
 bool verifyMqttConnection();
 void GoDeepSleep();
 void EnableModem();
+void LedControl();
+uint16_t ReadAvgValue(uint8_t pin);
 //END FF DECLARATIONS
 
 void setup()
@@ -90,6 +119,13 @@ void setup()
 	log_d("Enabling transistor...");
 	pinMode(PIN_ENABLE, OUTPUT); //We have the gps and the screen as the load of a transistor, so they fully disconnect when esp32 goes deep sleep
 	digitalWrite(PIN_ENABLE, HIGH);
+	pinMode(PIN_LED, OUTPUT);
+	digitalWrite(PIN_LED, LOW);
+	if(CONTROL_VOLTAGE) {
+		pinMode(PIN_BAT, INPUT); //not really needed, all pins start as input
+		analogReadResolution(10);
+		analogSetPinAttenuation(PIN_BAT, ADC_11db); //max input value ~2600mv ????
+	}
 
 	// Start power management
 	if(setupPMU() == false) {
@@ -103,12 +139,17 @@ void setup()
 	// 	log_d("I2C bus init error :(");
 	// }
 //	_u8g2.setBusClock(100000);
-	_u8g2.begin();
-	_u8g2.setFont(u8g2_font_5x8_mf);
-	//_TheDebug.SetFont(ScreenDebugger::SIZE1);
-	_TheScreenInfo.wifiState = "Sleeping...";
-	_TheScreenInfo.mqttState = "Waiting WiFi...";
-	DrawScreen();
+	if(_u8g2.begin()) {
+		_ScreenInitialized=true;
+		_u8g2.setFont(u8g2_font_5x8_mf);
+		//_TheDebug.SetFont(ScreenDebugger::SIZE1);
+		_TheScreenInfo.wifiState = "Sleeping...";
+		_TheScreenInfo.mqttState = "Waiting GSM...";
+		DrawScreen();
+	}
+	else {
+		log_d("Screen NOT available");
+	}
 
 //	_TheDebug.NewLine("Setup Complete!");
 	log_d("Setup Complete!");
@@ -116,6 +157,13 @@ void setup()
 
 void loop()
 {
+	if(CONTROL_VOLTAGE && (millis() - _lastVoltageUpd) > 10000) {
+		_lastVoltageUpd=millis();
+		_LastVoltageRead = ReadAvgValue(PIN_BAT);
+	}
+
+	//log_d("Voltage value=%d", (int)(voltageRead));
+
 	auto now = millis();
 	if(_TheScreenInfo.gpsFix && (now - _LastFixed) > 60000) {
 		_TheScreenInfo.gpsFix = false;
@@ -133,8 +181,9 @@ void loop()
 			_TheScreenInfo.lat_deg = _TheFix.latitude();
 			_TheScreenInfo.lon_deg = _TheFix.longitude();
 			DrawScreen();
-			if(_FixedLoops == 0) {
+			if(_FixedLoops == 0 && !_ModemInitialized) {
 				EnableModem();
+				_ModemInitialized=true;
 			}
 			_FixedLoops++;
 			log_d("Fixed! loop=%d", _FixedLoops);
@@ -153,18 +202,34 @@ void loop()
 		_TheScreenInfo.gpsFix = false;
 	}
 
+	 LedControl();
+
 	if(_TheFix.valid.location && (now - _lastProcessMillis) >= _delayTimeUpt && _FixedLoops >= FIXED_LOOPS_B4_PUBLISH) {
 		_lastProcessMillis = now;
 		log_d("Time 2 update!!");
 
 		if(verifyGPRSConnection() && verifyMqttConnection()) {
-			std::string msg = Utils::string_format("%f, %f, %f, %d", _TheFix.speed_kph(), _TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm() / 100);
+			//std::string msg = Utils::string_format("%f, %f, %f, %d", _TheFix.speed_kph(), _TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm() / 100);
+			////ID,datetime,latitude,longitude,elevation,speed
+			std::string msg = Utils::string_format("%d, %d, %f, %f, %d, %f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
+				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm()/100, _TheFix.speed_kph());
 			log_d("Publishing [%s]", msg.c_str());
-			if(_ThePubSub.publish((std::string(ADAIO_USER).append(FEED_LOCATION)).c_str(), msg.c_str())) {
+			if(CONTROL_VOLTAGE) {
+				_LastVoltageRead = ReadAvgValue(PIN_BAT);
+				float volts=(_LastVoltageRead*MAX_VOLTAGE)/(float)MAX_VOLTAGE_READ;
+				_ThePubSub.publish(FEED_BATTERY, Utils::string_format("%2.2f", volts).c_str(), true);
+			}
+			//if(_ThePubSub.publish((std::string(ADAIO_USER).append(FEED_LOCATION)).c_str(), msg.c_str())) {
+			if(_ThePubSub.publish(FEED_BABYTRACKER, msg.c_str(), true)) {
 				_TheScreenInfo.mqttState = Utils::string_format("(%3.2f,%3.2f)", _TheFix.latitude(), _TheFix.longitude());
-				_TheScreenInfo.wifiState = "DeepSleep...";
-				DrawScreen();
-				GoDeepSleep();
+				if(!ALWAYS_ON) {
+					_TheScreenInfo.wifiState = "DeepSleep...";
+					DrawScreen();
+					GoDeepSleep();
+				}
+				else {
+					_FixedLoops=0;
+				}
 			}
 			else {
 				_TheScreenInfo.mqttState = "Publish Error";
@@ -190,7 +255,7 @@ void loop()
 
 void DrawScreen()
 {
-	if(!_ScreenActive) {
+	if(!_ScreenActive || !_ScreenInitialized) {
 		return;
 	}
 
@@ -202,6 +267,7 @@ void DrawScreen()
 	char tbuffer[32];
 	std::strftime(tbuffer, sizeof(tbuffer), "%d/%m/%Y %H:%M:%S", ptm);
 
+	float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
 	_u8g2.firstPage();
 	do {
 		j = charH;
@@ -217,10 +283,15 @@ void DrawScreen()
 		_u8g2.setCursor(0, j); j += charH;
 		_u8g2.print(Utils::string_format("Alt: %3.1fm Spd: %3.1fkph", _TheScreenInfo.alt_m, _TheScreenInfo.speed_kph).c_str());
 		_u8g2.setCursor(0, j); j += charH;
-		_u8g2.print(Utils::string_format("Wifi: %s", _TheScreenInfo.wifiState.c_str()).c_str());
-		_u8g2.setCursor(0, j); j += charH * 2;
-		_u8g2.print(Utils::string_format("Mqtt: %s", _TheScreenInfo.mqttState.c_str()).c_str());
+		_u8g2.print(Utils::string_format("GSM: %s", _TheScreenInfo.wifiState.c_str()).c_str());
 		_u8g2.setCursor(0, j); j += charH;
+		_u8g2.print(Utils::string_format("Mqtt: %s", _TheScreenInfo.mqttState.c_str()).c_str());
+		if(CONTROL_VOLTAGE) {
+			_u8g2.setCursor(0, j);
+			_u8g2.print(Utils::string_format("Battery: %2.2fv", volts).c_str());
+		}
+		j += charH;
+		_u8g2.setCursor(0, j);
 		_u8g2.print(Utils::string_format("Time: %s", tbuffer).c_str());
 
 	} while(_u8g2.nextPage());
@@ -235,6 +306,37 @@ void GoDeepSleep()
 
 	esp_sleep_enable_timer_wakeup(_sleepForSecs * uS_TO_S_FACTOR);
 	esp_deep_sleep_start();
+}
+
+void LedControl()
+{
+	auto now=millis();
+	auto sinceChange = (now - _lastLedChange);
+
+	if(_LedON && sinceChange > LED_ON_TIME) {
+		log_d("OFF");
+		digitalWrite(PIN_LED, LOW);
+		_LedON = false;
+		_lastLedChange=now;
+	}
+	else if(!_LedON) {
+		bool turnOn=false;
+		if(_GprsErrorCount > 0 && sinceChange > LED_GSMERROR_OFF) {
+			turnOn = true;
+		}
+		else if(!_TheFix.valid.location && sinceChange > LED_LOCATING_OFF) {
+			turnOn = true;
+		}
+		else if(_TheFix.valid.location && sinceChange > LED_FIXED_OFF) {
+			turnOn = true;
+		}
+		if(turnOn) {
+			log_d("ON");
+			_LedON = true;
+			digitalWrite(PIN_LED, HIGH);
+			_lastLedChange=now;
+		}
+	}
 }
 
 void EnableModem()
@@ -309,7 +411,7 @@ void setupGSM()
 	DrawScreen();
 
 	//connects with GPRS
-	if(!_modemGSM.gprsConnect("internetmas")) {
+	if(!_modemGSM.gprsConnect("TM")) {//internetmas
 		log_d("GPRS Connection Failed :(");
 		_TheScreenInfo.wifiState = "GPRS Error";
 		DrawScreen();
@@ -364,14 +466,16 @@ bool verifyMqttConnection()
 
 	if(!_ThePubSub.connected()) {
 		_TheScreenInfo.mqttConnected = false;
+		_TheScreenInfo.mqttState = "Connecting...";
+		DrawScreen();
 		log_d("PubSubClient Not Connected :(");
 
 		_ThePubSub.setClient(_clientGSM);//_TheWifi);
-		_ThePubSub.setServer(ADAFRUIT_ADDR, ADAFRUIT_PORT);
-		_ThePubSub.setKeepAlive(120);
+		_ThePubSub.setServer(MQTT_BROKER, MQTT_PORT); //ADAFRUIT_SERVER, ADAFRUIT_PORT
+		_ThePubSub.setKeepAlive(60);
 		//_ThePubSub.setCallback(PubSubCallback);
-		if(!_ThePubSub.connect("PChanMQTT", ADAIO_USER, ADAIO_KEY)) {
-			log_d("ERROR!! PubSubClient was not able to connect to AdafruitIO!!");
+		if(!_ThePubSub.connect("PChanMQTT")) { //, ADAIO_USER, ADAIO_KEY)) {
+			log_d("ERROR!! PubSubClient was not able to connect to broker!!"); //AdafruitIO
 			//_TheDebug.NewLine("MQTT error :(");
 			_TheScreenInfo.mqttState = Utils::string_format("Error. State=%d", _ThePubSub.state());
 			ret = false;
@@ -379,7 +483,7 @@ bool verifyMqttConnection()
 		else {
 			_TheScreenInfo.mqttConnected = true;
 			_TheScreenInfo.mqttState = "Connected";
-			log_d("PubSubClient connected to AdafruitIO!!");
+			log_d("PubSubClient connected to broker!!");
 			//_TheDebug.NewLine("MQTT OK!!");
 		}
 	}
@@ -389,4 +493,18 @@ bool verifyMqttConnection()
 	}
 
 	return ret;
+}
+
+uint16_t ReadAvgValue(uint8_t pin)
+{
+	uint8_t numreads = 3, count = 0;
+	uint32_t value = 0;
+
+	do {
+		value += analogRead(pin);
+		delay(20);
+		count++;
+	} while(count < numreads);
+
+	return value / numreads;
 }
