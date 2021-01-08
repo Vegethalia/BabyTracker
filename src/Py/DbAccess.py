@@ -79,6 +79,8 @@ class BabyTrackerDB:
     fromData=fromData + timedelta(days=1)
     if not self.__EnsureDbConnected(numRetries):
         return False
+    if (numLimit==0):
+        numLimit=10
     sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate<=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT %s"
     mycursor = self._dbCNX.cursor()
     df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData,numLimit))
