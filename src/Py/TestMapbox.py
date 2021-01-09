@@ -21,6 +21,8 @@ MIN_LONGITUDE=2.0415
 external_stylesheets = [dbc.themes.CYBORG] # [https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
+MapBoxToken = open("resources/mapbox_token.txt").read()
+
 #Exemple amb plotly.express
 _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.DB_DATABASE, Params.DB_PORT)
 mydfTracks=_MyDb.GetTracks(1,2)
@@ -143,6 +145,11 @@ app.layout=html.Div(children=[
 #    #    title_text='Cercador de Babys')
 #    return(fig)
 
+#The accepted values for layout.mapbox.style are one of the following tiles:
+# "white-bg" yields an empty white canvas which results in no external HTTP requests
+# "open-street-map", "carto-positron", "carto-darkmatter", "stamen-terrain", "stamen-toner" or "stamen-watercolor" yeild maps composed of raster tiles from various public tile servers which do not require signups or access tokens
+# "basic", "streets", "outdoors", "light", "dark", "satellite", or "satellite-streets" yeild maps composed of vector tiles from the Mapbox service, and do require a Mapbox 
+
 @app.callback(
     Output("idLocation", "children"), 
     Output("idBabyShowMap", "figure"),
@@ -165,7 +172,8 @@ def GetUserLocation(n):
     height=750,
     mapbox = {
         'center': {'lon':(MIN_LONGITUDE+MAX_LONGITUDE)/2, 'lat': (MIN_LATITUDE+MAX_LATITUDE)/2},
-        'style': "stamen-terrain",
+        'accesstoken':MapBoxToken,
+        'style': 'stamen-watercolor', #'open-street-map',#"satellite-streets",#"satellite", # "stamen-terrain", #
         'zoom': 12},
     title_text='Cercador de Babys')
     return f"\nIP:{ipClient} -\n Latlong: {myloc.latlng}", fig         
