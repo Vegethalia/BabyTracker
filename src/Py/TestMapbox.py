@@ -160,20 +160,20 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
 
 
 #Modifiquem el tipus de mapa segons el que hagi escollit l'usuari al dropdownlist
-@app.callback(
-    Output("idBabyShowMap","figure"), Input("idTipusMap","value")
-)
-def update_TipusMap(TipusMap):
- fig.update_layout(
-    margin ={'l':0,'t':0,'b':0,'r':0},
-    height=750,
-    mapbox = {
-        'center': {'lon':(MIN_LONGITUDE+MAX_LONGITUDE)/2, 'lat': (MIN_LATITUDE+MAX_LATITUDE)/2},
-        'accesstoken':MapBoxToken,
-        'style': TipusMap,
-        'zoom': 12},
-    title_text='Cercador de Babys')
- return(fig)
+#@app.callback(
+#    Output("idBabyShowMap","figure"), Input("idTipusMap","value")
+#)
+#def update_TipusMap(TipusMap):
+# fig.update_layout(
+#    margin ={'l':0,'t':0,'b':0,'r':0},
+#    height=750,
+#    mapbox = {
+#        'center': {'lon':(MIN_LONGITUDE+MAX_LONGITUDE)/2, 'lat': (MIN_LATITUDE+MAX_LATITUDE)/2},
+#        'accesstoken':MapBoxToken,
+#        'style': TipusMap,
+#        'zoom': 12},
+#    title_text='Cercador de Babys')
+# return(fig)
 
 #funció que s'executa en client al navegador i obté les coordenades gps de l'usuari
 app.clientside_callback(
