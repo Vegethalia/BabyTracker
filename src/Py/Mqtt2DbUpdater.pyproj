@@ -25,6 +25,8 @@
     <Compile Include="DbAccess.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="TestMapbox - Copy %282%29.py" />
+    <Compile Include="TestMapbox - Copy %283%29.py" />
     <Compile Include="testUserLocation.py">
       <SubType>Code</SubType>
     </Compile>
