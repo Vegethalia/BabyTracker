@@ -25,6 +25,8 @@
     <Compile Include="DbAccess.py">
       <SubType>Code</SubType>
     </Compile>
+    <Compile Include="TestMapbox - Copy %282%29.py" />
+    <Compile Include="TestMapbox - Copy %283%29.py" />
     <Compile Include="testUserLocation.py">
       <SubType>Code</SubType>
     </Compile>
@@ -55,9 +57,13 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="requirements.txt" />
+    <Content Include="resources\mapbox_token.txt" />
   </ItemGroup>
   <ItemGroup>
     <InterpreterReference Include="CondaEnv|CondaEnv|BabyTrackerConda" />
+  </ItemGroup>
+  <ItemGroup>
+    <Folder Include="resources\" />
   </ItemGroup>
   <Import Project="$(MSBuildExtensionsPath32)\Microsoft\VisualStudio\v$(VisualStudioVersion)\Python Tools\Microsoft.PythonTools.targets" />
 </Project>
