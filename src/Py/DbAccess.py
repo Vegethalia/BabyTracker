@@ -19,19 +19,31 @@ class BabyTrackerDB:
     self._port=port
     self._dbSchema=schema
 
-  def InsertNewEntry(self, idTracker, theDate, latitude, longitude, altitude, speed, numRetries=10):
-    if not self.__EnsureDbConnected(numRetries):
+  def InsertNewEntry(self, idTracker, theDate, latitude, longitude, altitude, speed, battery, numRetries=10):
+    if not self.TryConnect(numRetries):
       return False
 
     try:
-      theDate=datetime.fromtimestamp(int(theDate)) #, tzinfo=timezone('Etc/GMT+1')
+#      theDate=datetime.fromtimestamp(int(theDate)) #, tzinfo=timezone('Etc/GMT+1')
       mycursor = self._dbCNX.cursor()
-      sql="INSERT INTO LocationHistory (IDTRACKER, LocDate, Latitude, Longitude, Altitude, Speed) VALUES (%s, %s, %s, %s, %s, %s)"
-      values=(idTracker, theDate, latitude, longitude, altitude, speed)
+      sql="INSERT INTO LocationHistory (IDTRACKER, LocDate, Latitude, Longitude, Altitude, Speed, Battery) VALUES (%s, %s, %s, %s, %s, %s, %s)"
+      values=(idTracker, theDate, latitude, longitude, altitude, speed, battery)
       mycursor.execute(sql, values)
       self._dbCNX.commit()
     except Exception as err:
       print("Exception trying to insert into DB!: ", err)
+
+
+  def InsertEntries(self, missingRows):
+    """Insert the list of entries into the DB"""
+    if(not self.TryConnect(1)):  
+      return None;
+
+    try:
+      for row in missingRows:
+        self.InsertNewEntry(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+    except Exception as err:
+      print(f"Exception trying to insert into DB! {err} ")
 
 
   def __Connect(self):
@@ -58,13 +70,13 @@ class BabyTrackerDB:
     return self._dbCNX and self._dbCNX.is_connected()
 
 
-  def __EnsureDbConnected(self, numRetries=10):
+  def TryConnect(self, numRetries=10):
     """Checks if the mysql connection is connected. 
     If its not, retries until a connection is made (for numRetries attempts...)"""
     while not self._dbCNX or not self._dbCNX.is_connected():
         if self._dbCNX:
-            print("Connection to DB failed, retrying after 30s...")
-            time.sleep(30)  # delay 30 seconds and try again
+            print("Connection to DB failed, retrying after 10s...")
+            time.sleep(10)  # delay 10 seconds and try again
         if self.__Connect() :
           break
         numRetries-=1
@@ -73,11 +85,25 @@ class BabyTrackerDB:
 
     return self._dbCNX and self._dbCNX.is_connected()
 
+  def GetMaxDate(self):
+    """Return the max existing date in the DB"""
+    if(not self.TryConnect(1)):  
+      return None;
+
+    myCursor=self._dbCNX.cursor()
+    myCursor.execute("SELECT MAX(LocDate) AS MaxDate FROM LocationHistory")
+    row = myCursor.fetchone()
+    if row is not None:
+      return row[0]
+    else:
+      return None
+
+
   def GetTracks(self,IDTracker,numLimit,fromData: datetime=None, numRetries=10):
     if(fromData is None): 
         fromData=date.today()
     fromData=fromData + timedelta(days=1)
-    if not self.__EnsureDbConnected(numRetries):
+    if not self.TryConnect(numRetries):
         return False
     if (numLimit==0):
         numLimit=10

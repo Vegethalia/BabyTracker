@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{fb26989c-8321-43e7-bcce-2c763dda9554}</ProjectGuid>
     <ProjectHome />
-    <StartupFile>TestMapbox.py</StartupFile>
+    <StartupFile>Mqtt2DbUpdater.py</StartupFile>
     <SearchPath />
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
@@ -25,8 +25,9 @@
     <Compile Include="DbAccess.py">
       <SubType>Code</SubType>
     </Compile>
-    <Compile Include="TestMapbox - Copy %282%29.py" />
-    <Compile Include="TestMapbox - Copy %283%29.py" />
+    <Compile Include="DbAccessLite.py">
+      <SubType>Code</SubType>
+    </Compile>
     <Compile Include="testUserLocation.py">
       <SubType>Code</SubType>
     </Compile>
