@@ -10,6 +10,7 @@ import plotly.express as px
 from datetime import datetime
 import plotly.graph_objects as go
 from dash.dependencies import ClientsideFunction, Input, Output #per fer funcions js a client
+import os
 
 #MAX_LATITUDE=41.4803
 #MIN_LATITUDE=41.4659
@@ -20,7 +21,9 @@ from dash.dependencies import ClientsideFunction, Input, Output #per fer funcion
 external_stylesheets = [dbc.themes.CYBORG] # [https://codepen.io/chriddyp/pen/bWLwgP.css']
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
-MapBoxToken = open("resources/mapbox_token.txt").read()
+# Get path of the current dir, then use it to create paths:
+CURRENT_DIR = os.path.dirname(__file__)
+MapBoxToken = open(os.path.join(CURRENT_DIR, 'resources/mapbox_token.txt')).read()
 
 #Exemple amb plotly.express
 _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.DB_DATABASE, Params.DB_PORT)
