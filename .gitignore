@@ -7,3 +7,4 @@ src/mykeys.h
 src/Py/BabyTracker/Lib/
 src/Py/__pycache__/
 src/Py/resources/key.pem
+src/Py/Params.py
