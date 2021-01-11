@@ -7,7 +7,8 @@ from dash.dependencies import Input, Output
 import DbAccess as db
 import Params
 import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta
+import time
 import plotly.graph_objects as go
 from dash.dependencies import ClientsideFunction, Input, Output #per fer funcions js a client
 import os
@@ -16,6 +17,12 @@ import os
 #MIN_LATITUDE=41.4659
 #MAX_LONGITUDE=2.0699
 #MIN_LONGITUDE=2.0415
+MAX_ITEMS_SELECTED=5
+MIN_MINUTES=5
+MAX_MINUTES=120
+MAX_TEXT_SIZE=20
+COLOR_SERIE='fuchsia'
+COLOR_USR='green'
 
 #Template Blootstrap
 external_stylesheets = [dbc.themes.CYBORG] # [https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -27,16 +34,18 @@ MapBoxToken = open(os.path.join(CURRENT_DIR, 'resources/mapbox_token.txt')).read
 
 #Exemple amb plotly.express
 _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.DB_DATABASE, Params.DB_PORT)
-mydfTracks=_MyDb.GetTracks(1,20)
+mydfTracks=_MyDb.GetTracks(1)
 
 #mydfTracksA=_MyDb.GetTracks(1,2,datetime.strptime('03/01/2021','%d/%m/%Y'))
 #Dibuixem el mapa base amb la posició de l'usuari      
 fig = go.Figure(go.Scattermapbox(
-    mode = "markers",
+    mode = "markers+text",
     lon =mydfTracks,
     lat = mydfTracks,
     marker =dict(size=20, color='red'),
-    name='Arlet&Erola')
+    textposition='top right',
+    text=mydfTracks.LocDate,
+    name='Basic')
  )
 
 fig.update_layout(
@@ -86,10 +95,10 @@ app.layout=html.Div(children=[
                    'Seleccionar últims minuts',
                    dcc.Slider(
                         id='idSlider',                        
-                        min=5,
-                        max=120,
+                        min=MIN_MINUTES,
+                        max=MAX_MINUTES,
                        step=None,
-                        marks={str(i):{'label':str(i)+'m'} for i in range(5,125,5)},
+                        marks={str(i):{'label':str(i)+'m'} for i in range(5,MAX_MINUTES+5,5)},
                         value=5                        
                     )
                 ],style={'height':75})
@@ -109,6 +118,15 @@ app.layout=html.Div(children=[
     ])
 ])
 
+##actualitem dataframe de la bbdd
+#@app.callback(
+#    Output("idBabyShowMap", "figure"),
+#    Input("idButton","n_clicks")
+#)
+#def update_sqlDataframe(bActualitza):
+#    df=_MyDb.GetTracks(1)
+#    updateDades(df)
+#    return(mydfTracks2)
 
 #dibuixem tot el mapa amb el que es necessita. tipus de mapa, loc de l'usuari i llista de punts del esp32
 @app.callback(
@@ -119,17 +137,19 @@ app.layout=html.Div(children=[
     Input("idOutputClient", "children"),
 )
 def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
-    #DateHour=date.today()+timedelta(minutes=-TempsSelected)
-    #dfSelected=mydfTracks[mydfTracks[LocDate]>=TempsSelected]
-    dfSelected=mydfTracks
+    DateHour=datetime.now()+timedelta(minutes=-TempsSelected)
+    dfSelected=mydfTracks[mydfTracks['LocDate']>=DateHour]
+    if dfSelected.empty:
+        dfSelected=mydfTracks.head(MAX_ITEMS_SELECTED)
+
     fig = go.Figure(go.Scattermapbox(
         mode = "markers+lines+text",
         lon = dfSelected.Longitude,
         lat = dfSelected.Latitude,
         textposition='top right',
-        textfont=dict(size=16, color='black'),
-        text=dfSelected.LocDate,
-        marker = {'size': 10, 'color':'fuchsia'},
+        textfont=dict(size=MAX_TEXT_SIZE, color=COLOR_SERIE),
+        text=dfSelected['LocDate'].dt.strftime('%H:%M:%S'),
+        marker = {'size': 10, 'color':COLOR_SERIE},
         name='Trackers'))
      #si tenim la geocalització de l'usuari, la pintem i posicionem el mapa al centre entre la usr location y els tracks
     maxLatitude=mydfTracks['Latitude'].max()
@@ -144,9 +164,10 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         lon =[myloc[1]],
         lat = [myloc[0]],
         textposition='top right',
-        textfont=dict(size=16, color='black'),
-        text=["TEXTING"],
+        textfont=dict(size=MAX_TEXT_SIZE, color=COLOR_USR),
+        text="MyLoc" + str(datetime.now()),
         marker =dict(size=20, color='green'),
+
         name='MyLoc'))
         maxLatitude=max(float(myloc[0]),maxLatitude)
         maxLongitude=max(float(myloc[1]),maxLongitude)

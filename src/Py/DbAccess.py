@@ -99,16 +99,19 @@ class BabyTrackerDB:
       return None
 
 
-  def GetTracks(self,IDTracker,numLimit,fromData: datetime=None, numRetries=10):
-    if(fromData is None): 
-        fromData=date.today()
-    fromData=fromData + timedelta(days=1)
+  def GetTracks(self,IDTracker,numLimit=20,fromData: datetime=date.today(), numRetries=10):
+
+    fromData=fromData + timedelta(days=-1)
     if not self.TryConnect(numRetries):
         return False
     if (numLimit==0):
-        numLimit=10
-    sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate<=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT %s"
+        numLimit=20
+    sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate>=%s ORDER BY IDTRACKER, LOCDATE DESC" #LIMIT %s"
     mycursor = self._dbCNX.cursor()
-    df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData,numLimit))
+    #df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData,numLimit))
+    df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData))
+    if df.empty:
+        sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT %s"
+        df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, numLimit))
     mycursor.close()
     return df

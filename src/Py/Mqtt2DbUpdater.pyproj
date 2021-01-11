@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{fb26989c-8321-43e7-bcce-2c763dda9554}</ProjectGuid>
     <ProjectHome />
-    <StartupFile>Mqtt2DbUpdater.py</StartupFile>
+    <StartupFile>TestMapbox.py</StartupFile>
     <SearchPath />
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
