@@ -230,13 +230,14 @@ void loop()
 		log_d("Time 2 update!!");
 
 		if(verifyGPRSConnection() && verifyMqttConnection()) {
-			std::string msg = Utils::string_format("%d, %d, %f, %f, %d, %f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
-				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm()/100, _TheFix.speed_kph());
+			float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
+			std::string msg = Utils::string_format("%d, %d, %f, %f, %d, %f, %f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
+				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm()/100, _TheFix.speed_kph(), volts);
 			log_d("Publishing [%s]", msg.c_str());
-			if(CONTROL_VOLTAGE) {
-				float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
-				_ThePubSub.publish(FEED_BATTERY, Utils::string_format("%2.2f", volts).c_str(), true);
-			}
+			// if(CONTROL_VOLTAGE) {
+			// 	float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
+			// 	_ThePubSub.publish(FEED_BATTERY, Utils::string_format("%2.2f", volts).c_str(), true);
+			// }
 			if(_ThePubSub.publish(FEED_BABYTRACKER, msg.c_str(), true)) {
 				_TheScreenInfo.mqttState = Utils::string_format("(%3.2f,%3.2f)", _TheFix.latitude(), _TheFix.longitude());
 				if(!ALWAYS_ON) {
