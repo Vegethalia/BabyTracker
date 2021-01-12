@@ -106,13 +106,14 @@ class BabyTrackerDB:
         return None
     if (numLimit==0):
         numLimit=20
-#    self._dbCNX.commit()
     sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate>=%s ORDER BY IDTRACKER, LOCDATE DESC" #LIMIT %s"
     #mycursor = self._dbCNX.cursor()
     #df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData,numLimit))
     df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData))
+
     if df.empty:
         sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT %s"
         df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, numLimit))
+    self._dbCNX.commit()
     #mycursor.close()
     return df
