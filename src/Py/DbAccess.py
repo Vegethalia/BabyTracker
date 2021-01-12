@@ -85,6 +85,7 @@ class BabyTrackerDB:
 
     return self._dbCNX and self._dbCNX.is_connected()
 
+
   def GetMaxDate(self):
     """Return the max existing date in the DB"""
     if(not self.TryConnect(1)):  
@@ -100,18 +101,18 @@ class BabyTrackerDB:
 
 
   def GetTracks(self,IDTracker,numLimit=20,fromData: datetime=date.today(), numRetries=10):
-
     fromData=fromData + timedelta(days=-1)
     if not self.TryConnect(numRetries):
-        return False
+        return None
     if (numLimit==0):
         numLimit=20
+#    self._dbCNX.commit()
     sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s AND LocDate>=%s ORDER BY IDTRACKER, LOCDATE DESC" #LIMIT %s"
-    mycursor = self._dbCNX.cursor()
+    #mycursor = self._dbCNX.cursor()
     #df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData,numLimit))
     df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, fromData))
     if df.empty:
         sql="SELECT Latitude, Longitude, LocDate FROM LocationHistory WHERE IDTRACKER=%s ORDER BY IDTRACKER, LOCDATE DESC LIMIT %s"
         df=pd.read_sql(sql, self._dbCNX, params=(IDTracker, numLimit))
-    mycursor.close()
+    #mycursor.close()
     return df

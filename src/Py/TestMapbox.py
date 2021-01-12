@@ -37,26 +37,42 @@ _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.
 mydfTracks=_MyDb.GetTracks(1)
 
 #mydfTracksA=_MyDb.GetTracks(1,2,datetime.strptime('03/01/2021','%d/%m/%Y'))
-#Dibuixem el mapa base amb la posició de l'usuari      
-fig = go.Figure(go.Scattermapbox(
-    mode = "markers+text",
-    lon =mydfTracks,
-    lat = mydfTracks,
-    marker =dict(size=20, color='red'),
-    textposition='top right',
-    text=mydfTracks.LocDate,
-    name='Basic')
- )
+#Dibuixem el mapa base amb la posició de l'usuari
+if mydfTracks is None:
+    fig = go.Figure(go.Scattermapbox(
+        mode = "markers+text",
+        marker =dict(size=20, color='red'),
+        textposition='top right',
+        name='Basic')
+    )
+    fig.update_layout(
+    margin ={'l':0,'t':0,'b':0,'r':0},
+    height=750,
+    mapbox = {
+        'accesstoken':MapBoxToken,
+        'style': 'stamen-watercolor',
+        'zoom': 2},
+    title_text='Cercador de Babys')
+else:    
+    fig = go.Figure(go.Scattermapbox(
+        mode = "markers+text",
+        lon =mydfTracks,
+        lat = mydfTracks,
+        marker =dict(size=20, color='red'),
+        textposition='top right',
+        text=mydfTracks.LocDate,
+        name='Basic')
+    )
 
-fig.update_layout(
-margin ={'l':0,'t':0,'b':0,'r':0},
-height=750,
-mapbox = {
-    'center': {'lon':(mydfTracks['Longitude'].min()+mydfTracks['Longitude'].max())/2, 'lat': (mydfTracks['Latitude'].min()+mydfTracks['Latitude'].max())/2},
-    'accesstoken':MapBoxToken,
-    'style': 'stamen-watercolor',
-    'zoom': 2},
-title_text='Cercador de Babys')
+    fig.update_layout(
+    margin ={'l':0,'t':0,'b':0,'r':0},
+    height=750,
+    mapbox = {
+        'center': {'lon':(mydfTracks['Longitude'].min()+mydfTracks['Longitude'].max())/2, 'lat': (mydfTracks['Latitude'].min()+mydfTracks['Latitude'].max())/2},
+        'accesstoken':MapBoxToken,
+        'style': 'stamen-watercolor',
+        'zoom': 2},
+    title_text='Cercador de Babys')
 
 cap=dbc.Jumbotron(fluid=True, className="pt-2 pb-2", children=[
     dbc.Row(children=[
@@ -137,6 +153,24 @@ app.layout=html.Div(children=[
     Input("idOutputClient", "children"),
 )
 def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
+    """lala"""
+    mydfTracks=_MyDb.GetTracks(1)
+    if mydfTracks is None:
+        fig = go.Figure(go.Scattermapbox(
+            mode = "markers+text",
+            marker =dict(size=20, color='red'),
+            textposition='top right',
+            name='Basic')
+        )
+        fig.update_layout(
+        margin ={'l':0,'t':0,'b':0,'r':0},
+        height=750,
+        mapbox = {
+            'accesstoken':MapBoxToken,
+            'style': TipusMap},
+        title_text='Cercador de Babys')
+        return "DB error", fig
+
     DateHour=datetime.now()+timedelta(minutes=-TempsSelected)
     dfSelected=mydfTracks[mydfTracks['LocDate']>=DateHour]
     if dfSelected.empty:
@@ -150,7 +184,8 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         textfont=dict(size=MAX_TEXT_SIZE, color=COLOR_SERIE),
         text=dfSelected['LocDate'].dt.strftime('%H:%M:%S'),
         marker = {'size': 10, 'color':COLOR_SERIE},
-        name='Trackers'))
+        name='Trackers')
+    )
      #si tenim la geocalització de l'usuari, la pintem i posicionem el mapa al centre entre la usr location y els tracks
     maxLatitude=mydfTracks['Latitude'].max()
     maxLongitude=mydfTracks['Longitude'].max()
@@ -160,15 +195,16 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
     myloc=geolocationUser.split(",")
     if (len(myloc)==2):   
         fig.add_trace(go.Scattermapbox(
-        mode = "markers+lines",
-        lon =[myloc[1]],
-        lat = [myloc[0]],
-        textposition='top right',
-        textfont=dict(size=MAX_TEXT_SIZE, color=COLOR_USR),
-        text="MyLoc" + str(datetime.now()),
-        marker =dict(size=20, color='green'),
+            mode = "markers+lines",
+            lon =[myloc[1]],
+            lat = [myloc[0]],
+            textposition='top right',
+            textfont=dict(size=MAX_TEXT_SIZE, color=COLOR_USR),
+            text="MyLoc" + str(datetime.now()),
+            marker =dict(size=20, color='green'),
 
-        name='MyLoc'))
+            name='MyLoc')
+        )
         maxLatitude=max(float(myloc[0]),maxLatitude)
         maxLongitude=max(float(myloc[1]),maxLongitude)
         minLatitude=min(float(myloc[0]),minLatitude)
@@ -180,8 +216,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
     mapbox = {
         'center': {'lon':(minLongitude+maxLongitude)/2, 'lat': (minLatitude+maxLatitude)/2},
         'accesstoken':MapBoxToken,
-        'style': TipusMap,
-        'zoom': 12},
+        'style': TipusMap}
     )
     #mydfTracks=_MyDb.GetTracks(1,HourValue)
     #fig = go.Figure(go.Scattermapbox(
@@ -226,4 +261,4 @@ app.clientside_callback(
 
 if __name__ == '__main__':
 	#app.run_server(ssl_context='adhoc',debug=True, use_reloader=False,host='0.0.0.0', port=8017)
-    app.run_server(debug=True, use_reloader=False,host='0.0.0.0', port=8017)
+    app.run_server(debug=True, use_reloader=True,host='0.0.0.0', port=8018)
