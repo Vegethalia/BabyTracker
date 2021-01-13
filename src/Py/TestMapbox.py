@@ -51,7 +51,7 @@ if mydfTracks is None:
     mapbox = {
         'accesstoken':MapBoxToken,
         'style': 'stamen-watercolor',
-        'zoom': 2},
+        'zoom': 5},
     title_text='Cercador de Babys')
 else:    
     fig = go.Figure(go.Scattermapbox(
@@ -124,7 +124,7 @@ app.layout=html.Div(children=[
     dbc.Row(children=[
         dbc.Col(width=1),
         dbc.Col(className="aborder border-primary", width=10, children=[
-            dcc.Graph(id='idBabyShowMap'),
+            dcc.Graph(id='idBabyShowMap', figure=fig),
             dcc.Interval(
                 id='interval-component',
                 interval=30*1000, # in milliseconds (30s)
@@ -171,7 +171,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         title_text='Cercador de Babys')
         return "DB error", fig
 
-    DateHour=datetime.now()+timedelta(minutes=-TempsSelected)
+    DateHour=datetime.now()+timedelta(minutes=-TempsSelected*2)
     dfSelected=mydfTracks[mydfTracks['LocDate']>=DateHour]
     if dfSelected.empty:
         dfSelected=mydfTracks.head(MAX_ITEMS_SELECTED)
@@ -216,7 +216,8 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
     mapbox = {
         'center': {'lon':(minLongitude+maxLongitude)/2, 'lat': (minLatitude+maxLatitude)/2},
         'accesstoken':MapBoxToken,
-        'style': TipusMap}
+        'style': TipusMap,
+        'zoom':15}
     )
     #mydfTracks=_MyDb.GetTracks(1,HourValue)
     #fig = go.Figure(go.Scattermapbox(
