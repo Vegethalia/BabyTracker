@@ -36,12 +36,12 @@ MapBoxToken = open(os.path.join(CURRENT_DIR, 'resources/mapbox_token.txt')).read
 
 #Funció que determina el zoom
 def calcZoom(minLat,maxLat, minLong, maxLong):
-    #yWidth=maxLat-minLat
-    #xWidth=maxLong-minLong
-    #yZoom=-1.446*math.log(yWidth)+7.2753
-    #xZoom=-1.415*math.log(yWidth)+8.7068
-    yZoom=5
-    xZoom=5
+    yWidth=maxLat-minLat
+    xWidth=maxLong-minLong
+    yZoom=-1.446*math.log(yWidth)+7.2753
+    xZoom=-1.415*math.log(yWidth)+8.7068
+    #yZoom=CNST_ZOOM
+    #xZoom=CNST_ZOOM
     return min(round(yZoom,2),round(xZoom,2))
 
 _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.DB_DATABASE, Params.DB_PORT)
@@ -229,7 +229,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser, n):
         'center': {'lon':(minLongitude+maxLongitude)/2, 'lat': (minLatitude+maxLatitude)/2},
         'accesstoken':MapBoxToken,
         'style': TipusMap,
-        'zoom':CNST_ZOOM}
+        'zoom':calc_Zoom(minLongitude,maxLongitude,minLatitude,maxLatitude)}
     )
     #mydfTracks=_MyDb.GetTracks(1,HourValue)
     #fig = go.Figure(go.Scattermapbox(
