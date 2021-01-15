@@ -51,7 +51,7 @@ if mydfTracks is None:
     mapbox = {
         'accesstoken':MapBoxToken,
         'style': 'stamen-watercolor',
-        'zoom': 5},
+        'zoom': 10},
     title_text='Cercador de Babys')
 else:    
     fig = go.Figure(go.Scattermapbox(
@@ -71,7 +71,7 @@ else:
         'center': {'lon':(mydfTracks['Longitude'].min()+mydfTracks['Longitude'].max())/2, 'lat': (mydfTracks['Latitude'].min()+mydfTracks['Latitude'].max())/2},
         'accesstoken':MapBoxToken,
         'style': 'stamen-watercolor',
-        'zoom': 2},
+        'zoom': 10},
     title_text='Cercador de Babys')
 
 cap=dbc.Jumbotron(fluid=True, className="pt-2 pb-2", children=[
@@ -151,8 +151,9 @@ app.layout=html.Div(children=[
     Input("idTipusMap","value"),
     Input("idSlider","value"),
     Input("idOutputClient", "children"),
+    Input("idButton","n_clicks")
 )
-def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
+def update_MapTotal(TipusMap, TempsSelected, geolocationUser, n):
     """lala"""
     mydfTracks=_MyDb.GetTracks(1)
     if mydfTracks is None:
@@ -171,7 +172,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         title_text='Cercador de Babys')
         return "DB error", fig
 
-    DateHour=datetime.now()+timedelta(minutes=-TempsSelected*2)
+    DateHour=datetime.now()+timedelta(minutes=-TempsSelected*10)
     dfSelected=mydfTracks[mydfTracks['LocDate']>=DateHour]
     if dfSelected.empty:
         dfSelected=mydfTracks.head(MAX_ITEMS_SELECTED)
@@ -217,7 +218,8 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         'center': {'lon':(minLongitude+maxLongitude)/2, 'lat': (minLatitude+maxLatitude)/2},
         'accesstoken':MapBoxToken,
         'style': TipusMap,
-        'zoom':15}
+        'zoom':14
+        }
     )
     #mydfTracks=_MyDb.GetTracks(1,HourValue)
     #fig = go.Figure(go.Scattermapbox(
