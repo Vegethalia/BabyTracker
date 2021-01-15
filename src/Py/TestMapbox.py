@@ -12,6 +12,7 @@ import time
 import plotly.graph_objects as go
 from dash.dependencies import ClientsideFunction, Input, Output #per fer funcions js a client
 import os
+import math
 
 #MAX_LATITUDE=41.4803
 #MIN_LATITUDE=41.4659
@@ -23,6 +24,7 @@ MAX_MINUTES=120
 MAX_TEXT_SIZE=20
 COLOR_SERIE='fuchsia'
 COLOR_USR='green'
+CNST_ZOOM=10
 
 #Template Blootstrap
 external_stylesheets = [dbc.themes.CYBORG] # [https://codepen.io/chriddyp/pen/bWLwgP.css']
@@ -32,7 +34,16 @@ app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 CURRENT_DIR = os.path.dirname(__file__)
 MapBoxToken = open(os.path.join(CURRENT_DIR, 'resources/mapbox_token.txt')).read()
 
-#Exemple amb plotly.express
+#Funció que determina el zoom
+def calcZoom(minLat,maxLat, minLong, maxLong):
+    #yWidth=maxLat-minLat
+    #xWidth=maxLong-minLong
+    #yZoom=-1.446*math.log(yWidth)+7.2753
+    #xZoom=-1.415*math.log(yWidth)+8.7068
+    yZoom=5
+    xZoom=5
+    return min(round(yZoom,2),round(xZoom,2))
+
 _MyDb=db.BabyTrackerDB(Params.DB_USER, Params.DB_PASS, Params.DB_SERVER, Params.DB_DATABASE, Params.DB_PORT)
 mydfTracks=_MyDb.GetTracks(1)
 
@@ -51,7 +62,7 @@ if mydfTracks is None:
     mapbox = {
         'accesstoken':MapBoxToken,
         'style': 'stamen-watercolor',
-        'zoom': 2},
+        'zoom': CNST_ZOOM},
     title_text='Cercador de Babys')
 else:    
     fig = go.Figure(go.Scattermapbox(
@@ -71,12 +82,13 @@ else:
         'center': {'lon':(mydfTracks['Longitude'].min()+mydfTracks['Longitude'].max())/2, 'lat': (mydfTracks['Latitude'].min()+mydfTracks['Latitude'].max())/2},
         'accesstoken':MapBoxToken,
         'style': 'stamen-watercolor',
-        'zoom': 2},
+        'zoom':CNST_ZOOM        
+        },
     title_text='Cercador de Babys')
 
 cap=dbc.Jumbotron(fluid=True, className="pt-2 pb-2", children=[
     dbc.Row(children=[
-		    html.H4("Benvingut!! Has perdut els babys???, Tranquil els trobarem!" ), 
+		    html.H4("Benvingut!! Has perdut els babys???, Tranquil els trobarem!" )
 		    ],  justify="center", align="center"),
 ])
 app.layout=html.Div(children=[
@@ -124,7 +136,7 @@ app.layout=html.Div(children=[
     dbc.Row(children=[
         dbc.Col(width=1),
         dbc.Col(className="aborder border-primary", width=10, children=[
-            dcc.Graph(id='idBabyShowMap'),
+            dcc.Graph(id='idBabyShowMap', figure=fig),
             dcc.Interval(
                 id='interval-component',
                 interval=30*1000, # in milliseconds (30s)
@@ -202,21 +214,21 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
             textfont=dict(size=MAX_TEXT_SIZE, color=COLOR_USR),
             text="MyLoc" + str(datetime.now()),
             marker =dict(size=20, color='green'),
-
             name='MyLoc')
         )
         maxLatitude=max(float(myloc[0]),maxLatitude)
         maxLongitude=max(float(myloc[1]),maxLongitude)
         minLatitude=min(float(myloc[0]),minLatitude)
         minLongitude=min(float(myloc[1]),minLongitude)
-
+    
     fig.update_layout(
     margin ={'l':0,'t':0,'b':0,'r':0},
     height=750,
     mapbox = {
         'center': {'lon':(minLongitude+maxLongitude)/2, 'lat': (minLatitude+maxLatitude)/2},
         'accesstoken':MapBoxToken,
-        'style': TipusMap}
+        'style': TipusMap,
+        'zoom':CNST_ZOOM}
     )
     #mydfTracks=_MyDb.GetTracks(1,HourValue)
     #fig = go.Figure(go.Scattermapbox(
@@ -231,7 +243,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
     #    mapbox = {
     #        'center': {'lon':(MIN_LONGITUDE+MAX_LONGITUDE)/2, 'lat': (MIN_LATITUDE+MAX_LATITUDE)/2},
     #        'style': "stamen-terrain",
-    #        'zoom': 12},
+    #        'zoom': CNST_ZOOM},
     #    title_text='Cercador de Babys')
     return  f" --Slider SELECT: {TempsSelected} -- GEOLOCATION: {myloc} --",fig
 
