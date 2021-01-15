@@ -17,6 +17,21 @@
 
 #define ALWAYS_ON        true
 #define CONTROL_VOLTAGE  true //if true, PIN_BAT will be used to read the voltage of the battery
+#define FORCE_RESET_TIME (30*60*1000) //half an hour and no gps? reset!
+#define SLEEP_TIME_SECS  120
+#define MAX_SAME_LOCS    5
+#define MAX_DIST_OK      5000    //if the distance with the previous gps point is greater than this, ignore the loc and do not publish.
+
+#define MIN_DIST_UPDATE  15      //update gps if position has moved at least this meters
+#define DIST_UPDATE_1    20      //if gps pos has moved this meters, update a little faster
+#define DIST_UPDATE_2    40      //if gps pos has moved this meters, update faster
+#define DIST_UPDATE_3    90      //if gps pos has moved this meters, update fastest
+#define UPDATE_TIME      60000   //update once every this seconds if gps has moved between MIN_DIST_UPDATE and DIST_UPDATE_1
+#define UPDATE_TIME_1    40000   //update once every this seconds if gps has moved between DIST_UPDATE_1 and DIST_UPDATE_2
+#define UPDATE_TIME_2    30000   //update once every this seconds if gps has moved between DIST_UPDATE_2 and DIST_UPDATE_3
+#define UPDATE_TIME_3    20000   //update once every this seconds if gps has moved more than DIST_UPDATE_3
+
+#define CHECK_EVERY      (UPDATE_TIME_3/4)    //check if GPS has moved once every this time
 
 #define MAX_VOLTAGE      4.32f //when charging
 #define MIN_VOLTAGE      3.40f
@@ -43,11 +58,6 @@
 #define SCREEN_HEIGHT  64 // OLED display height, in pixels
 #define uS_TO_S_FACTOR 1000000ULL  // Conversion factor for micro seconds to seconds
 
-// ADAFRUIT Feeds / Related stuff
-// #define ADAFRUIT_ADDR      "52.7.124.212" //"io.adafruit.com"
-// #define ADAFRUIT_PORT      1883
-// #define FEED_LOCATION      "/feeds/location/csv" //sensor_value,latitude,longitude,elevation
-
 #define TRACKER_ID       1 //this is the 1st tracker!
 #define MQTT_BROKER      "mitotoro.synology.me"
 #define MQTT_PORT        1888
@@ -69,34 +79,35 @@ SoftwareSerial  _SerialGPS(PIN_GPS_RX, PIN_GPS_TX); // no more hw serials availa
 TinyGsm         _modemGSM(Serial1); //With LILYGO TCALL the modem rx/tx is this one
 TinyGsmClient   _clientGSM(_modemGSM);
 
-//TwoWire         _I2Cscreen = TwoWire(0);
 //WiFiClient      _TheWifi;
 PubSubClient    _ThePubSub;
 
-//ScreenDebugger  _TheDebug(&_u8g2, 5, 1);
 ScreenInfo      _TheScreenInfo;
 bool            _ScreenActive = false;
 
-NMEAGPS         _TheNeoGps; // This object parses the GPS characters
-gps_fix         _TheFix;    // This global structure contains the GPS fix returned by _TheNeoGps
+NMEAGPS         _TheNeoGps;           // This object parses the GPS characters
+gps_fix         _TheFix;              // This global structure contains the GPS fix returned by _TheNeoGps
+GpsPosLocation  _LastPublishedPos;    // Last published coordinates
+unsigned long   _LastPublishTime = 0; // last time we successfully published a location
+unsigned long   _LastUpdCheck = 0;    // Last time we checked if an update was needed.
+uint8_t         _CountSameLoc=0;      // To count number of times the location was exactly the same... if that happens is probably a bug --> reset
 
 //TIMING VARS
-unsigned long _delayTimeUpt = 60000;
-unsigned long _lastProcessMillis = 0;
-unsigned long _LastFixed = 0;
-unsigned long _lastLedChange = 0;
-uint8_t       _GprsErrorCount = 0;
-int           _timeout = 0;
-uint16_t      _sleepForSecs = 60;
-uint16_t      _FixedLoops = 0;
-bool          _ModemInitialized = false;
-bool          _ScreenInitialized = false;
-bool          _LedON = false;
-uint8_t       _LedBlinks=0; //Counts the number of led blinks since the last _LedBlinks=0
-uint16_t      _LastVoltageRead = MAX_VOLTAGE_READ;
-unsigned long _lastVoltageUpd = 0;
-unsigned long _AccumVoltage=0;
-uint16_t      _NumVoltageReadings=0;
+unsigned long  _lastProcessMillis = 0;
+unsigned long  _LastFixed = 0;
+unsigned long  _lastLedChange = 0;
+uint8_t        _GprsErrorCount = 0;
+int            _timeout = 0;
+uint16_t       _FixedLoops = 0;
+bool           _ModemInitialized = false;
+bool           _ScreenInitialized = false;
+bool           _LedON = false;
+uint8_t        _LedBlinks=0; //Counts the number of led blinks since the last _LedBlinks=0
+uint16_t       _LastVoltageRead = MAX_VOLTAGE_READ;
+unsigned long  _lastVoltageUpd = 0;
+unsigned long  _AccumVoltage=0;
+uint16_t       _NumVoltageReadings=0;
+bool           _LocationPublished=false; //true if the gps location has been published at least once
 
 //FORWARD DECLARATIONS
 void DrawScreen();
@@ -107,6 +118,7 @@ bool verifyMqttConnection();
 void GoDeepSleep();
 bool EnableModem();
 void LedControl();
+bool UpdateNeeded(unsigned long now, float &dist);
 uint16_t ReadAvgValue(uint8_t pin);
 //END FF DECLARATIONS
 
@@ -119,16 +131,20 @@ void setup()
 	log_d("Setup Serial GPS...");
 	_SerialGPS.begin(9600);
 
+	// if(ReadAvgValue(PIN_BAT)>(MAX_VOLTAGE_READ-10)) {
+	// 	delay(1000);
+	// 	if(ReadAvgValue(PIN_BAT) > (MAX_VOLTAGE_READ - 10)) {
+	// 		log_d("Charging! going sleep...");
+	// 		delay(2000);
+	// 		GoDeepSleep();
+	// 	}
+	// }
+
 	log_d("Enabling transistor...");
 	pinMode(PIN_ENABLE, OUTPUT); //We have the gps and the screen as the load of a transistor, so they fully disconnect when esp32 goes deep sleep
 	digitalWrite(PIN_ENABLE, HIGH);
 	pinMode(PIN_LED, OUTPUT);
 	digitalWrite(PIN_LED, LOW);
-	// if(CONTROL_VOLTAGE) {
-	// 	pinMode(PIN_BAT, INPUT); //not really needed, all pins start as input
-	// 	analogReadResolution(10);
-	// 	analogSetPinAttenuation(PIN_BAT, ADC_11db); //max input value ~2600mv ????
-	// }
 
 	// Start power management
 	if(setupPMU() == false) {
@@ -137,15 +153,11 @@ void setup()
 
 	//We will setup the modem only when we have a gps fix, so we can safe battery
 
+	// Start display
 	log_d("Begin Display...");
-	// if(!_I2Cscreen.begin(PIN_I2C_SDA, PIN_I2C_SCL, 100000)) { //0=default 100000 100khz
-	// 	log_d("I2C bus init error :(");
-	// }
-//	_u8g2.setBusClock(100000);
 	if(_ScreenActive && _u8g2.begin()) {
 		_ScreenInitialized=true;
 		_u8g2.setFont(u8g2_font_5x8_mf);
-		//_TheDebug.SetFont(ScreenDebugger::SIZE1);
 		_TheScreenInfo.wifiState = "Sleeping...";
 		_TheScreenInfo.mqttState = "Waiting GSM...";
 		DrawScreen();
@@ -154,26 +166,15 @@ void setup()
 		log_d("Screen NOT available");
 	}
 
-//	_TheDebug.NewLine("Setup Complete!");
 	log_d("Setup Complete!");
 }
 
 void loop()
 {
-	if(CONTROL_VOLTAGE && (millis() - _lastVoltageUpd) > 10000) {
-		_lastVoltageUpd=millis();
-		_AccumVoltage += ReadAvgValue(PIN_BAT);
-		_NumVoltageReadings++;
-		_LastVoltageRead = _AccumVoltage / _NumVoltageReadings;
-		if(_NumVoltageReadings>10) {
-			_NumVoltageReadings = 1;
-			_AccumVoltage = _LastVoltageRead;
-		}
-		log_d("Bat=%d", _LastVoltageRead);
-	}
-
+	ReadAvgValue(PIN_BAT);
 	//log_d("Voltage value=%d", (int)(voltageRead));
 
+	float dist=0;
 	auto now = millis();
 	if(_TheScreenInfo.gpsFix && (now - _LastFixed) > 60000) {
 		_TheScreenInfo.gpsFix = false;
@@ -223,13 +224,18 @@ void loop()
 		_TheScreenInfo.gpsFix = false;
 	}
 
-	 LedControl();
+	LedControl();
 
-	if(_TheFix.valid.location && (now - _lastProcessMillis) >= _delayTimeUpt && _FixedLoops >= FIXED_LOOPS_B4_PUBLISH) {
-		_lastProcessMillis = now;
+	if(UpdateNeeded(now, dist) && _FixedLoops >= FIXED_LOOPS_B4_PUBLISH) {
 		log_d("Time 2 update!!");
-
-		if(verifyGPRSConnection() && verifyMqttConnection()) {
+		_lastProcessMillis = now;
+		if(dist>MAX_DIST_OK) {
+			log_d("Last Point is farther than max distance allowed!! Ignoring it");
+			_LastPublishedPos.lat_deg = _TheFix.latitude();
+			_LastPublishedPos.lon_deg = _TheFix.longitude();
+			_LastPublishTime = now;
+		}
+		else if(verifyGPRSConnection() && verifyMqttConnection()) {
 			float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
 			std::string msg = Utils::string_format("%d, %d, %f, %f, %d, %f, %f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
 				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm()/100, _TheFix.speed_kph(), volts);
@@ -240,6 +246,9 @@ void loop()
 			// }
 			if(_ThePubSub.publish(FEED_BABYTRACKER, msg.c_str(), true)) {
 				_TheScreenInfo.mqttState = Utils::string_format("(%3.2f,%3.2f)", _TheFix.latitude(), _TheFix.longitude());
+				_LastPublishedPos.lat_deg = _TheFix.latitude();
+				_LastPublishedPos.lon_deg = _TheFix.longitude();
+				_LastPublishTime=now;
 				if(!ALWAYS_ON) {
 					_TheScreenInfo.wifiState = "DeepSleep...";
 					DrawScreen();
@@ -265,10 +274,19 @@ void loop()
 			}
 		}
 	}
+	else if(!_TheFix.valid.location && (now - _LastPublishTime) > FORCE_RESET_TIME) {
+		log_d("%dms without GPS!! RESETING");
+		_TheScreenInfo.wifiState = "RESET";
+		DrawScreen();
+		delay(3000);
+		ESP.restart();
+	}
 	if(_ThePubSub.connected()) {
 		_ThePubSub.loop(); //allow the pubsubclient to process incoming messages
 	}
 	DrawScreen();
+
+	delay(50); //we dont want to run all the time? or we do?
 }
 
 void DrawScreen()
@@ -325,9 +343,11 @@ void GoDeepSleep()
 	log_d("Going to Sleep!!");
 
 	_modemGSM.poweroff();
-	_u8g2.setPowerSave(1);
+	if(_ScreenActive && _ScreenInitialized) {
+		_u8g2.setPowerSave(1);
+	}
 
-	esp_sleep_enable_timer_wakeup(_sleepForSecs * uS_TO_S_FACTOR);
+	esp_sleep_enable_timer_wakeup(SLEEP_TIME_SECS * uS_TO_S_FACTOR);
 	esp_deep_sleep_start();
 }
 
@@ -532,14 +552,81 @@ bool verifyMqttConnection()
 
 uint16_t ReadAvgValue(uint8_t pin)
 {
-	uint8_t numreads = 2, count = 0;
-	uint32_t value = 0;
+	if(CONTROL_VOLTAGE && (millis() - _lastVoltageUpd) > 10000) {
+		uint8_t numreads = 2, count = 0;
+		uint32_t value = 0;
 
-	do {
-		value += analogRead(pin);
-		delay(20);
-		count++;
-	} while(count < numreads);
+		_lastVoltageUpd = millis();
+		do {
+			value += analogRead(pin);
+			delay(20);
+			count++;
+		} while(count < numreads);
+		_AccumVoltage += (value / numreads);
+		_NumVoltageReadings++;
 
-	return value / numreads;
+		_LastVoltageRead = _AccumVoltage / _NumVoltageReadings;
+		if(_NumVoltageReadings > 10) {
+			_NumVoltageReadings = 1;
+			_AccumVoltage = _LastVoltageRead;
+		}
+		log_d("Bat=%d", _LastVoltageRead);
+	}
+
+	return _LastVoltageRead;
+}
+
+bool UpdateNeeded(unsigned long now, float &dist)
+{
+	if((_LastUpdCheck - now) < CHECK_EVERY) {
+		return false;
+	}
+
+	_LastUpdCheck = now;
+
+	if(!_TheFix.valid.location) {
+		return false;
+	}
+
+	if(_LastPublishTime == 0 || _lastProcessMillis==0) {
+		return true;
+	}
+
+	bool result = false;
+	unsigned long ellapsed = now - _lastProcessMillis;
+
+
+	dist=Utils::DistanceBetween2Points(_TheFix.latitude(), _TheFix.longitude(), _LastPublishedPos.lat_deg, _LastPublishedPos.lon_deg);
+
+	if(dist>DIST_UPDATE_3 && ellapsed > UPDATE_TIME_3) {
+		log_d("GPS UPDATE 3. Dist=%f Ellapsed=%d", dist, ellapsed);
+		result = true;
+	}
+	else if(dist > DIST_UPDATE_2 && ellapsed > UPDATE_TIME_2) {
+		log_d("GPS UPDATE 2. Dist=%f Ellapsed=%d", dist, ellapsed);
+		result = true;
+	}
+	else if(dist > DIST_UPDATE_1 && ellapsed > UPDATE_TIME_1) {
+		log_d("GPS UPDATE 1. Dist=%f Ellapsed=%d", dist, ellapsed);
+		result = true;
+	}
+	else if(dist > MIN_DIST_UPDATE && ellapsed > UPDATE_TIME) {
+		log_d("GPS UPDATE NORMAL. Dist=%f Ellapsed=%d", dist, ellapsed);
+		result = true;
+	}
+
+	if(result && dist<0.5) {
+		_CountSameLoc++;
+		log_d("Same position!!! Dist=%f", dist);
+		if(_CountSameLoc > MAX_SAME_LOCS) { //this is very strange!!!
+			log_d("Max number of same gps locs. Are we bugged? Reset!");
+			delay(2000);
+			ESP.restart();
+		}
+	}
+	else if(result) {
+		_CountSameLoc=0;
+	}
+
+	return result;
 }

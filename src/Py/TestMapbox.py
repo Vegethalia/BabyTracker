@@ -183,7 +183,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         title_text='Cercador de Babys')
         return "DB error", fig
 
-    DateHour=datetime.now()+timedelta(minutes=-TempsSelected)
+    DateHour=datetime.now()+timedelta(minutes=-TempsSelected*2)
     dfSelected=mydfTracks[mydfTracks['LocDate']>=DateHour]
     if dfSelected.empty:
         dfSelected=mydfTracks.head(MAX_ITEMS_SELECTED)
