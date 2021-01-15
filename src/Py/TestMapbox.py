@@ -229,7 +229,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser, n):
         'center': {'lon':(minLongitude+maxLongitude)/2, 'lat': (minLatitude+maxLatitude)/2},
         'accesstoken':MapBoxToken,
         'style': TipusMap,
-        'zoom':calc_Zoom(minLongitude,maxLongitude,minLatitude,maxLatitude)}
+        'zoom':calcZoom(minLongitude,maxLongitude,minLatitude,maxLatitude)}
     )
     #mydfTracks=_MyDb.GetTracks(1,HourValue)
     #fig = go.Figure(go.Scattermapbox(
