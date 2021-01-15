@@ -24,3 +24,8 @@ struct ScreenInfo {
 		mqttState.clear();
 	}
 };
+
+struct GpsPosLocation {
+	float lat_deg;
+	float lon_deg;
+};
