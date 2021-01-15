@@ -163,8 +163,9 @@ app.layout=html.Div(children=[
     Input("idTipusMap","value"),
     Input("idSlider","value"),
     Input("idOutputClient", "children"),
+    Input("idButton","n_clicks")
 )
-def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
+def update_MapTotal(TipusMap, TempsSelected, geolocationUser, n):
     """lala"""
     mydfTracks=_MyDb.GetTracks(1)
     if mydfTracks is None:
@@ -183,7 +184,7 @@ def update_MapTotal(TipusMap, TempsSelected, geolocationUser):
         title_text='Cercador de Babys')
         return "DB error", fig
 
-    DateHour=datetime.now()+timedelta(minutes=-TempsSelected*2)
+    DateHour=datetime.now()+timedelta(minutes=-TempsSelected*10)
     dfSelected=mydfTracks[mydfTracks['LocDate']>=DateHour]
     if dfSelected.empty:
         dfSelected=mydfTracks.head(MAX_ITEMS_SELECTED)
