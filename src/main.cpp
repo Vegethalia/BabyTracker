@@ -13,10 +13,11 @@
 #include "mykeys.h" //header containing sensitive information. Not included in repo. You will need to define the missing constants.
 #include "types.h"
 #include "SharedUtils/Utils.h"
-//#include "SharedUtils/ScreenDebugger.h" //to use the screen as a debugger
+#include <SPIFFS.h>
 
 #define ALWAYS_ON        true
 #define CONTROL_VOLTAGE  true //if true, PIN_BAT will be used to read the voltage of the battery
+#define LOG_ACTIVE       false
 #define FORCE_RESET_TIME (30*60*1000) //half an hour and no gps? reset!
 #define SLEEP_TIME_SECS  120
 #define MAX_SAME_LOCS    5
@@ -31,7 +32,8 @@
 #define UPDATE_TIME_2    30000   //update once every this seconds if gps has moved between DIST_UPDATE_2 and DIST_UPDATE_3
 #define UPDATE_TIME_3    20000   //update once every this seconds if gps has moved more than DIST_UPDATE_3
 
-#define CHECK_EVERY      (UPDATE_TIME_3/4)    //check if GPS has moved once every this time
+#define CHECK_EVERY      (UPDATE_TIME_3/4) //check if GPS has moved once every this time
+#define UPDATE_AT_LEAST  (20*60*1000)      //update at least once every 20 minutes.
 
 #define MAX_VOLTAGE      4.32f //when charging
 #define MIN_VOLTAGE      3.40f
@@ -108,8 +110,11 @@ unsigned long  _lastVoltageUpd = 0;
 unsigned long  _AccumVoltage=0;
 uint16_t       _NumVoltageReadings=0;
 bool           _LocationPublished=false; //true if the gps location has been published at least once
+bool           _LogAvailable=false;
+File           _TheLog;
 
 //FORWARD DECLARATIONS
+void ReadFromSerial();
 void DrawScreen();
 void setupModem();
 bool setupGSM();
@@ -120,6 +125,7 @@ bool EnableModem();
 void LedControl();
 bool UpdateNeeded(unsigned long now, float &dist);
 uint16_t ReadAvgValue(uint8_t pin);
+void LogMsg(std::string msg, bool add2log=true);
 //END FF DECLARATIONS
 
 void setup()
@@ -128,19 +134,41 @@ void setup()
 	// wait for serial monitor to open
 	while(!Serial);
 
-	log_d("Setup Serial GPS...");
+	// Launch SPIFFS file system
+	if(LOG_ACTIVE) {
+		if(!SPIFFS.begin()) {
+			LogMsg("An Error has occurred while mounting SPIFFS. Trying format...");
+			if(SPIFFS.format()) {
+				LogMsg("SPIFFS formated OK");//next reset will be able to write to log....
+			}
+		}
+		else {
+			_TheLog = SPIFFS.open("/log.txt", "a+");
+			if(!_TheLog) {
+				LogMsg("Failed to open LOG file :(");
+			}
+			else {
+				_LogAvailable = true;
+			}
+			unsigned int totalBytes = SPIFFS.totalBytes();
+			unsigned int usedBytes = SPIFFS.usedBytes();
+			LogMsg(Utils::string_format("SPIFFS totalSize=[%d] usedSize=[%d]", totalBytes, usedBytes));
+		}
+	}
+
+	LogMsg(Utils::string_format("Setup Serial GPS..."));
 	_SerialGPS.begin(9600);
 
 	// if(ReadAvgValue(PIN_BAT)>(MAX_VOLTAGE_READ-10)) {
-	// 	delay(1000);
+	// 	delay(2000);
 	// 	if(ReadAvgValue(PIN_BAT) > (MAX_VOLTAGE_READ - 10)) {
-	// 		log_d("Charging! going sleep...");
-	// 		delay(2000);
+	// 		LogMsg(Utils::string_format("Charging! going sleep...");
+	// 		delay(5000);
 	// 		GoDeepSleep();
 	// 	}
 	// }
 
-	log_d("Enabling transistor...");
+	LogMsg(Utils::string_format("Enabling transistor..."));
 	pinMode(PIN_ENABLE, OUTPUT); //We have the gps and the screen as the load of a transistor, so they fully disconnect when esp32 goes deep sleep
 	digitalWrite(PIN_ENABLE, HIGH);
 	pinMode(PIN_LED, OUTPUT);
@@ -148,13 +176,13 @@ void setup()
 
 	// Start power management
 	if(setupPMU() == false) {
-		Serial.println("Setting power error");
+		LogMsg(Utils::string_format("Setting power error"));
 	}
 
 	//We will setup the modem only when we have a gps fix, so we can safe battery
 
 	// Start display
-	log_d("Begin Display...");
+	LogMsg(Utils::string_format("Begin Display..."));
 	if(_ScreenActive && _u8g2.begin()) {
 		_ScreenInitialized=true;
 		_u8g2.setFont(u8g2_font_5x8_mf);
@@ -163,16 +191,19 @@ void setup()
 		DrawScreen();
 	}
 	else {
-		log_d("Screen NOT available");
+		LogMsg(Utils::string_format("Screen NOT available"));
 	}
 
-	log_d("Setup Complete!");
+	LogMsg(Utils::string_format("Setup Complete!"));
 }
 
 void loop()
 {
+	//Process any instrucction received from Serial
+	ReadFromSerial();
+
 	ReadAvgValue(PIN_BAT);
-	//log_d("Voltage value=%d", (int)(voltageRead));
+	//LogMsg(Utils::string_format("Voltage value=%d", (int)(voltageRead));
 
 	float dist=0;
 	auto now = millis();
@@ -193,6 +224,8 @@ void loop()
 			_TheScreenInfo.lon_deg = _TheFix.longitude();
 			DrawScreen();
 			if(_FixedLoops == 0 && !_ModemInitialized) {
+					//Turn off everything...
+				digitalWrite(PIN_ENABLE, LOW);
 				if(EnableModem()) {
 					_ModemInitialized=true;
 					_GprsErrorCount=0;
@@ -206,9 +239,11 @@ void loop()
 						ESP.restart();
 					}
 				}
+					//Turn off everything...
+				digitalWrite(PIN_ENABLE, HIGH);
 			}
 			_FixedLoops++;
-//			log_d("Fixed! loop=%d", _FixedLoops);
+//			LogMsg(Utils::string_format("Fixed! loop=%d", _FixedLoops);
 		}
 		if(_TheFix.valid.speed) {
 			_TheScreenInfo.speed_kph = _TheFix.speed_kph();
@@ -227,19 +262,19 @@ void loop()
 	LedControl();
 
 	if(UpdateNeeded(now, dist) && _FixedLoops >= FIXED_LOOPS_B4_PUBLISH) {
-		log_d("Time 2 update!!");
+		LogMsg(Utils::string_format("Time 2 update!!"));
 		_lastProcessMillis = now;
 		if(dist>MAX_DIST_OK) {
-			log_d("Last Point is farther than max distance allowed!! Ignoring it");
+			LogMsg(Utils::string_format("Last Point is farther than max distance allowed!! Ignoring it"));
 			_LastPublishedPos.lat_deg = _TheFix.latitude();
 			_LastPublishedPos.lon_deg = _TheFix.longitude();
 			_LastPublishTime = now;
 		}
 		else if(verifyGPRSConnection() && verifyMqttConnection()) {
 			float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
-			std::string msg = Utils::string_format("%d, %d, %f, %f, %d, %f, %f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
-				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm()/100, _TheFix.speed_kph(), volts);
-			log_d("Publishing [%s]", msg.c_str());
+			std::string msg = Utils::string_format("%d,%d,%f,%f,%d,%3.1f,%1.3f,%3.1f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
+				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm()/100, _TheFix.speed_kph(), volts, dist);
+			LogMsg(Utils::string_format("Publishing [%s]", msg.c_str()));
 			// if(CONTROL_VOLTAGE) {
 			// 	float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
 			// 	_ThePubSub.publish(FEED_BATTERY, Utils::string_format("%2.2f", volts).c_str(), true);
@@ -263,7 +298,7 @@ void loop()
 			}
 		}
 		else {
-			log_d("GPRS Not Ready :(");
+			LogMsg(Utils::string_format("GPRS Not Ready :("));
 			_GprsErrorCount++;
 			if(_GprsErrorCount >= MAX_GPRS_ERRORS) {
 				_GprsErrorCount = 0;
@@ -275,7 +310,7 @@ void loop()
 		}
 	}
 	else if(!_TheFix.valid.location && (now - _LastPublishTime) > FORCE_RESET_TIME) {
-		log_d("%dms without GPS!! RESETING");
+		LogMsg(Utils::string_format("%dms without GPS!! RESETING"));
 		_TheScreenInfo.wifiState = "RESET";
 		DrawScreen();
 		delay(3000);
@@ -340,7 +375,7 @@ void DrawScreen()
 
 void GoDeepSleep()
 {
-	log_d("Going to Sleep!!");
+	LogMsg(Utils::string_format("Going to Sleep!!"));
 
 	_modemGSM.poweroff();
 	if(_ScreenActive && _ScreenInitialized) {
@@ -357,7 +392,6 @@ void LedControl()
 	auto sinceChange = (now - _lastLedChange);
 
 	if(_LedON && sinceChange > LED_BLINK_TIME) {
-//		log_d("OFF");
 		digitalWrite(PIN_LED, LOW);
 		_LedON = false;
 		_lastLedChange=now;
@@ -366,19 +400,15 @@ void LedControl()
 	else if(!_LedON) {
 		bool turnOn = false;
 		if(_GprsErrorCount > 0 && _LedBlinks<BLINKS_GSMERROR && sinceChange > LED_BLINK_TIME) {
-//			log_d("ON ERROR");
 			turnOn = true;
 		}
 		else if(!_TheFix.valid.location && _LedBlinks<BLINKS_LOCATING && sinceChange > LED_BLINK_TIME) {
-//			log_d("ON LOCATING");
 			turnOn = true;
 		}
 		else if(_TheFix.valid.location && _LedBlinks<BLINKS_FIXED && sinceChange > LED_BLINK_TIME) {
-//			log_d("ON FIXED");
 			turnOn = true;
 		}
 		if(!turnOn && sinceChange > LED_BLINK_OFF) {
-//			log_d("ON AFTER OFF");
 			_LedBlinks=0;
 			turnOn=true;
 		}
@@ -398,20 +428,19 @@ bool EnableModem()
 	//Turn ON Status LED. It will be automatically turned off at some point later
 	digitalWrite(PIN_LED, HIGH);
 
-// Set GSM module baud rate and UART pins
+	// Set GSM module baud rate and UART pins
 	Serial1.begin(115200, SERIAL_8N1, MODEM_RX, MODEM_TX);
 
-		// Restart takes quite some time
-		// To skip it, call init() instead of restart()
-	log_d("Initializing modem...");
+	// Restart takes quite some time
+	// To skip it, call init() instead of restart()
+	LogMsg(Utils::string_format("Initializing modem..."));
 	_modemGSM.restart();
 
 	String modemInfo = _modemGSM.getModemInfo();
-	log_d("Modem: %d", modemInfo.c_str());
+	LogMsg(Utils::string_format("Modem: %s", modemInfo.c_str()));
 
-		//Initialize Wifi
-	//_TheDebug.NewLine("Initializing WiFi...");
-	log_d("Initializing GSM/WiFi...");
+	//Initialize Wifi
+	LogMsg(Utils::string_format("Initializing GSM/WiFi..."));
 	return setupGSM();
 }
 
@@ -443,37 +472,37 @@ void setupModem()
 
 bool setupGSM()
 {
-	log_d("Setup GSM...");
+	LogMsg(Utils::string_format("Setup GSM..."));
 
 	//aguarda network
 	_TheScreenInfo.wifiState = "Connecting...";
 	DrawScreen();
 
 	if(!_modemGSM.waitForNetwork(20000)) {
-		log_d("Failed to connect to network");
+		LogMsg(Utils::string_format("Failed to connect to network"));
 		if(!_modemGSM.restart()) {
-			log_d("Restarting GSM\nModem failed");
+			LogMsg(Utils::string_format("Restarting GSM - Modem failed"));
 		}
 		else {
-			log_d("GSM Modem restarted");
+			LogMsg(Utils::string_format("GSM Modem restarted"));
 		}
 
 		return false;
 	}
-	log_d("Modem registered to network OK!!");
+	LogMsg(Utils::string_format("Modem registered to network OK!!"));
 	_TheScreenInfo.wifiState = "Network OK";
 	DrawScreen();
 
 	//connects with GPRS
 	if(!_modemGSM.gprsConnect(APN)) {
-		log_d("GPRS Connection Failed :(");
+		LogMsg(Utils::string_format("GPRS Connection Failed :("));
 		_TheScreenInfo.wifiState = "GPRS Error";
 		DrawScreen();
 
 		return false;
 	}
 	_TheScreenInfo.wifiState = "GPRS OK";
-	log_d("GPRS Connected OK!!");
+	LogMsg(Utils::string_format("GPRS Connected OK!!"));
 	DrawScreen();
 
 	return true;
@@ -486,27 +515,27 @@ bool verifyGPRSConnection()
 
 	if(_modemGSM.isGprsConnected()) {
 		result = true;
-		log_d("GPRS: Connected!");
+		LogMsg(Utils::string_format("GPRS: Connected!"));
 		_TheScreenInfo.wifiConnected = true;
 		_TheScreenInfo.wifiState = "GPRS OK";
 	}
 	else {
-		log_d("GPRS: Disconnected. Reconnecting...");
+		LogMsg(Utils::string_format("GPRS: Disconnected. Reconnecting..."));
 		_TheScreenInfo.wifiConnected = false;
 
 		if(!_modemGSM.waitForNetwork()) {
-			log_d("Network Failed");
+			LogMsg(Utils::string_format("Network Failed"));
 			_modemGSM.restart();
 			_TheScreenInfo.wifiState = "Net Error";
 		}
 		else {
 			if(!_modemGSM.gprsConnect(APN)) {
-				log_d("GPRS Failed");
+				LogMsg(Utils::string_format("GPRS Failed"));
 				_TheScreenInfo.wifiState = "GPRS Error";
 			}
 			else {
 				result = true;
-				log_d("GPRS Connection OK");
+				LogMsg(Utils::string_format("GPRS Connection OK"));
 				_TheScreenInfo.wifiConnected = true;
 				_TheScreenInfo.wifiState = "GPRS OK";
 			}
@@ -523,14 +552,14 @@ bool verifyMqttConnection()
 		_TheScreenInfo.mqttConnected = false;
 		_TheScreenInfo.mqttState = "Connecting...";
 		DrawScreen();
-		log_d("PubSubClient Not Connected :(");
+		LogMsg(Utils::string_format("PubSubClient Not Connected :("));
 
 		_ThePubSub.setClient(_clientGSM);//_TheWifi);
 		_ThePubSub.setServer(MQTT_BROKER, MQTT_PORT); //ADAFRUIT_SERVER, ADAFRUIT_PORT
 		_ThePubSub.setKeepAlive(60);
 		//_ThePubSub.setCallback(PubSubCallback);
 		if(!_ThePubSub.connect("PChanMQTT")) { //, ADAIO_USER, ADAIO_KEY)) {
-			log_d("ERROR!! PubSubClient was not able to connect to broker!!"); //AdafruitIO
+			LogMsg(Utils::string_format("ERROR!! PubSubClient was not able to connect to broker!!")); //AdafruitIO
 			//_TheDebug.NewLine("MQTT error :(");
 			_TheScreenInfo.mqttState = Utils::string_format("Error. State=%d", _ThePubSub.state());
 			ret = false;
@@ -538,7 +567,7 @@ bool verifyMqttConnection()
 		else {
 			_TheScreenInfo.mqttConnected = true;
 			_TheScreenInfo.mqttState = "Connected";
-			log_d("PubSubClient connected to broker!!");
+			LogMsg(Utils::string_format("PubSubClient connected to broker!!"));
 			//_TheDebug.NewLine("MQTT OK!!");
 		}
 	}
@@ -570,7 +599,7 @@ uint16_t ReadAvgValue(uint8_t pin)
 			_NumVoltageReadings = 1;
 			_AccumVoltage = _LastVoltageRead;
 		}
-		log_d("Bat=%d", _LastVoltageRead);
+		LogMsg(Utils::string_format("Bat=%d", _LastVoltageRead), false);
 	}
 
 	return _LastVoltageRead;
@@ -578,7 +607,7 @@ uint16_t ReadAvgValue(uint8_t pin)
 
 bool UpdateNeeded(unsigned long now, float &dist)
 {
-	if((_LastUpdCheck - now) < CHECK_EVERY) {
+	if((now - _LastUpdCheck) < CHECK_EVERY) {
 		return false;
 	}
 
@@ -595,31 +624,30 @@ bool UpdateNeeded(unsigned long now, float &dist)
 	bool result = false;
 	unsigned long ellapsed = now - _lastProcessMillis;
 
-
 	dist=Utils::DistanceBetween2Points(_TheFix.latitude(), _TheFix.longitude(), _LastPublishedPos.lat_deg, _LastPublishedPos.lon_deg);
 
 	if(dist>DIST_UPDATE_3 && ellapsed > UPDATE_TIME_3) {
-		log_d("GPS UPDATE 3. Dist=%f Ellapsed=%d", dist, ellapsed);
+		LogMsg(Utils::string_format("GPS UPDATE 3. Dist=%f Ellapsed=%d", dist, ellapsed));
 		result = true;
 	}
 	else if(dist > DIST_UPDATE_2 && ellapsed > UPDATE_TIME_2) {
-		log_d("GPS UPDATE 2. Dist=%f Ellapsed=%d", dist, ellapsed);
+		LogMsg(Utils::string_format("GPS UPDATE 2. Dist=%f Ellapsed=%d", dist, ellapsed));
 		result = true;
 	}
 	else if(dist > DIST_UPDATE_1 && ellapsed > UPDATE_TIME_1) {
-		log_d("GPS UPDATE 1. Dist=%f Ellapsed=%d", dist, ellapsed);
+		LogMsg(Utils::string_format("GPS UPDATE 1. Dist=%f Ellapsed=%d", dist, ellapsed));
 		result = true;
 	}
 	else if(dist > MIN_DIST_UPDATE && ellapsed > UPDATE_TIME) {
-		log_d("GPS UPDATE NORMAL. Dist=%f Ellapsed=%d", dist, ellapsed);
+		LogMsg(Utils::string_format("GPS UPDATE NORMAL. Dist=%f Ellapsed=%d", dist, ellapsed));
 		result = true;
 	}
 
 	if(result && dist<0.5) {
 		_CountSameLoc++;
-		log_d("Same position!!! Dist=%f", dist);
+		LogMsg(Utils::string_format("Same position!!! Dist=%f", dist));
 		if(_CountSameLoc > MAX_SAME_LOCS) { //this is very strange!!!
-			log_d("Max number of same gps locs. Are we bugged? Reset!");
+			LogMsg(Utils::string_format("Max number of same gps locs. Are we bugged? Reset!"));
 			delay(2000);
 			ESP.restart();
 		}
@@ -627,6 +655,40 @@ bool UpdateNeeded(unsigned long now, float &dist)
 	else if(result) {
 		_CountSameLoc=0;
 	}
+	if(!result && ellapsed>UPDATE_AT_LEAST) {
+		result=true;
+	}
+
+	LogMsg(Utils::string_format("Distance from last published point=%3.2f", dist), false);
 
 	return result;
+}
+
+void ReadFromSerial()
+{
+	if((Serial.available() > 0)) {
+		auto msg = Serial.readStringUntil('\n');
+
+		LogMsg(Utils::string_format("Read from Serial: [%s]", msg.c_str()), false);
+
+		msg.trim();
+		msg.toUpperCase();
+		if(strcmp("VIEWLOG", msg.c_str())==0) {
+			LogMsg("SHOWING THE LOG!!", false);
+			_TheLog.seek(0);
+			while(_TheLog && _TheLog.available()) {
+				Serial.write(_TheLog.readString().c_str());
+			}
+		}
+	}
+}
+
+void LogMsg(std::string msg, bool add2log)
+{
+	log_d("%s", msg.c_str());
+
+	if(add2log && _LogAvailable && _TheLog) {
+		_TheLog.seek(0, fs::SeekEnd);
+		_TheLog.println(msg.c_str());
+	}
 }
