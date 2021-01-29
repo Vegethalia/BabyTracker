@@ -41,7 +41,7 @@ class BabyTrackerDB:
 
     try:
       for row in missingRows:
-        self.InsertNewEntry(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+        self.InsertNewEntry(row[0], row[1], row[2], row[3], row[4], row[5], row[6], -5)
     except Exception as err:
       print(f"Exception trying to insert into DB! {err} ")
 

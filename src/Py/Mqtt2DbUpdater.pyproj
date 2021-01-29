@@ -5,7 +5,7 @@
     <SchemaVersion>2.0</SchemaVersion>
     <ProjectGuid>{fb26989c-8321-43e7-bcce-2c763dda9554}</ProjectGuid>
     <ProjectHome />
-    <StartupFile>TestMapbox.py</StartupFile>
+    <StartupFile>Mqtt2DbUpdater.py</StartupFile>
     <SearchPath />
     <WorkingDirectory>.</WorkingDirectory>
     <OutputPath>.</OutputPath>
@@ -58,6 +58,9 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="requirements.txt" />
+    <Content Include="resources\cert.pem" />
+    <Content Include="resources\key.pem" />
+    <Content Include="resources\localDB.db" />
     <Content Include="resources\mapbox_token.txt" />
   </ItemGroup>
   <ItemGroup>
