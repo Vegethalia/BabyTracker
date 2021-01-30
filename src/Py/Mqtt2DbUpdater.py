@@ -45,15 +45,15 @@ def OnMessageReceived(client, userdata, msg):
 
 	global _MainDbConnected
 
-	#messages are like: "1, 1609515744, 41.472366, 2.043975, 0, 0.000000, 3.78"
+	#messages are like: "1, 1609515744, 41.472366, 2.043975, 0, 0.000000, 3.78, 25.3"
 	trackMsg=str(msg.payload).split(",")
-	if len(trackMsg) >= 6: #we don't care if the insert fails....
+	if len(trackMsg) >= 7: #we don't care if the insert fails....
 		_MyDbLite.InsertNewEntry(trackMsg[0], datetime.fromtimestamp(int(trackMsg[1])), trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5], trackMsg[6])
 		if(not _MainDbConnected and _MyDb.TryConnect()):
 			_MainDbConnected=True
 			UpdateMainDbFromLocal()
 
-		_MyDb.InsertNewEntry(trackMsg[0], datetime.fromtimestamp(int(trackMsg[1])), trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5], trackMsg[6]) 
+		_MyDb.InsertNewEntry(trackMsg[0], datetime.fromtimestamp(int(trackMsg[1])), trackMsg[2], trackMsg[3], trackMsg[4], trackMsg[5], trackMsg[6], trackMsg[7]) 
 		
 def Connect2Mqtt():
 	"""Tries to connect to the mqtt broker, and waits if the connection is not possible"""

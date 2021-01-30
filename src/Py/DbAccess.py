@@ -19,15 +19,15 @@ class BabyTrackerDB:
     self._port=port
     self._dbSchema=schema
 
-  def InsertNewEntry(self, idTracker, theDate, latitude, longitude, altitude, speed, battery, numRetries=10):
+  def InsertNewEntry(self, idTracker, theDate, latitude, longitude, altitude, speed, battery=0.0, distance=0.0, numRetries=10):
     if not self.TryConnect(numRetries):
       return False
 
     try:
 #      theDate=datetime.fromtimestamp(int(theDate)) #, tzinfo=timezone('Etc/GMT+1')
       mycursor = self._dbCNX.cursor()
-      sql="INSERT INTO LocationHistory (IDTRACKER, LocDate, Latitude, Longitude, Altitude, Speed, Battery) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-      values=(idTracker, theDate, latitude, longitude, altitude, speed, battery)
+      sql="INSERT INTO LocationHistory (IDTRACKER, LocDate, Latitude, Longitude, Altitude, Speed, Battery, Distance) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+      values=(idTracker, theDate, latitude, longitude, altitude, speed, battery, distance)
       mycursor.execute(sql, values)
       self._dbCNX.commit()
     except Exception as err:
@@ -41,7 +41,7 @@ class BabyTrackerDB:
 
     try:
       for row in missingRows:
-        self.InsertNewEntry(row[0], row[1], row[2], row[3], row[4], row[5], row[6])
+        self.InsertNewEntry(row[0], row[1], row[2], row[3], row[4], row[5], row[6], -5)
     except Exception as err:
       print(f"Exception trying to insert into DB! {err} ")
 
