@@ -14,19 +14,22 @@
 #include "types.h"
 #include "SharedUtils/Utils.h"
 #include <SPIFFS.h>
+//#include <esp_pm.h>
 
-#define ALWAYS_ON        true
 #define CONTROL_VOLTAGE  true //if true, PIN_BAT will be used to read the voltage of the battery
 #define LOG_ACTIVE       false
 #define FORCE_RESET_TIME (30*60*1000) //half an hour and no gps? reset!
 #define SLEEP_TIME_SECS  120
 #define MAX_SAME_LOCS    5
-#define MAX_DIST_OK      5000    //if the distance with the previous gps point is greater than this, ignore the loc and do not publish.
+#define MAX_DIST_OK      5000        //if the distance with the previous gps point is greater than this, ignore the loc and do not publish.
+#define SLEEPMODEM_NOUPT (6*60*1000) //No new GPS updates in 6 minutes? Sleep the modem!!
+#define LSLEEP_WAIT      (20*1000)   //Enter light sleep after this time after publishing a result
+#define LSLEEP_SECS      30          //Light sleep this time
 
-#define MIN_DIST_UPDATE  15      //update gps if position has moved at least this meters
-#define DIST_UPDATE_1    20      //if gps pos has moved this meters, update a little faster
-#define DIST_UPDATE_2    40      //if gps pos has moved this meters, update faster
-#define DIST_UPDATE_3    90      //if gps pos has moved this meters, update fastest
+#define MIN_DIST_UPDATE  12      //update gps if position has moved at least this meters
+#define DIST_UPDATE_1    25      //if gps pos has moved this meters, update a little faster
+#define DIST_UPDATE_2    50      //if gps pos has moved this meters, update faster
+#define DIST_UPDATE_3    100     //if gps pos has moved this meters, update fastest
 #define UPDATE_TIME      60000   //update once every this seconds if gps has moved between MIN_DIST_UPDATE and DIST_UPDATE_1
 #define UPDATE_TIME_1    40000   //update once every this seconds if gps has moved between DIST_UPDATE_1 and DIST_UPDATE_2
 #define UPDATE_TIME_2    30000   //update once every this seconds if gps has moved between DIST_UPDATE_2 and DIST_UPDATE_3
@@ -39,8 +42,8 @@
 #define MIN_VOLTAGE      3.40f
 #define MAX_VOLTAGE_READ 2225  //when charging
 
-#define LED_BLINK_TIME   150
-#define LED_BLINK_OFF    (LED_BLINK_TIME*10)
+#define LED_BLINK_TIME   100
+#define LED_BLINK_OFF    (LED_BLINK_TIME*15)
 #define BLINKS_LOCATING  1
 #define BLINKS_FIXED     2
 #define BLINKS_GSMERROR  3
@@ -48,13 +51,14 @@
 #define SIM800L_IP5306_VERSION_20200811
 #include "SharedUtils/lilygo_utils.h"
 
-#define PIN_GPS_TX  18
-#define PIN_GPS_RX  19
-#define PIN_I2C_SDA 21
-#define PIN_I2C_SCL 22
-#define PIN_ENABLE  12
-#define PIN_BAT     35 //15
-#define PIN_LED     2
+#define PIN_GPS_TX   18
+#define PIN_GPS_RX   19
+#define PIN_I2C_SDA  21
+#define PIN_I2C_SCL  22
+#define PIN_ENABLE   12
+#define PIN_BAT      35 //15
+#define PIN_LED      2
+#define PIN_GO_SLEEP 15
 
 #define SCREEN_WIDTH   128 // OLED display width, in pixels
 #define SCREEN_HEIGHT  64 // OLED display height, in pixels
@@ -69,8 +73,8 @@
 //U8G2_SH1106_128X64_NONAME_2_HW_I2C u8g2(U8G2_R0, PIN_I2C_SCL, PIN_I2C_SDA);
 U8G2_SSD1306_128X64_NONAME_1_HW_I2C _u8g2(U8G2_R0, PIN_I2C_SCL, PIN_I2C_SDA);
 
-#define MAX_GPRS_ERRORS        5 //after this errors, restart everything
-#define FIXED_LOOPS_B4_PUBLISH 3 //once we have a fix, wait this loops before trying to publish the value
+#define MAX_GPRS_ERRORS        5  //after this errors, restart everything
+#define FIXED_LOOPS_B4_PUBLISH 15 //once we have a fix, wait this loops before trying to publish the value
 
 #define TINY_GSM_MODEM_SIM800 // Modem difinition... we are using this one (SIM800L)
 #define TINY_GSM_DEBUG        Serial
@@ -98,6 +102,8 @@ uint8_t         _CountSameLoc=0;      // To count number of times the location w
 unsigned long  _lastProcessMillis = 0;
 unsigned long  _LastFixed = 0;
 unsigned long  _lastLedChange = 0;
+unsigned long  _lastModemON = 0;      // Last time we turned on the modem
+unsigned long  _lastLightSleep = 0;   // Last time we entered light sleep
 uint8_t        _GprsErrorCount = 0;
 int            _timeout = 0;
 uint16_t       _FixedLoops = 0;
@@ -120,9 +126,13 @@ void setupModem();
 bool setupGSM();
 bool verifyGPRSConnection();
 bool verifyMqttConnection();
+void RestartNOW();
 void GoDeepSleep();
+void SleepModem();
+void AwakeModem();
 bool EnableModem();
 void LedControl();
+void TurnModemNetlight(bool on);
 bool UpdateNeeded(unsigned long now, float &dist);
 uint16_t ReadAvgValue(uint8_t pin);
 void LogMsg(std::string msg, bool add2log=true);
@@ -133,6 +143,13 @@ void setup()
 	Serial.begin(115200);
 	// wait for serial monitor to open
 	while(!Serial);
+
+	pinMode(PIN_GO_SLEEP, INPUT_PULLUP); //If LOW, go deep sleep
+
+	LogMsg(Utils::string_format("Current speed=[%dMHz]. Setting new speed...", getCpuFrequencyMhz()));
+	if(setCpuFrequencyMhz(40)) LogMsg("OK!");
+	else LogMsg("Failed!");
+	LogMsg(Utils::string_format("Current speed=[%dMHz].", getCpuFrequencyMhz()));
 
 	// Launch SPIFFS file system
 	if(LOG_ACTIVE) {
@@ -156,17 +173,21 @@ void setup()
 		}
 	}
 
-	LogMsg(Utils::string_format("Setup Serial GPS..."));
-	_SerialGPS.begin(9600);
+	if(digitalRead(PIN_GO_SLEEP)==LOW) {
+		LogMsg("LOW --> GoDeepSleep", false);
+		pinMode(LED_GPIO, OUTPUT);
+		digitalWrite(LED_GPIO, LED_ON);
+		delay(5000);
+		GoDeepSleep();
+	}
+	else {
+		LogMsg("HIGH --> WORK, my slave!!!", false);
+	}
 
-	// if(ReadAvgValue(PIN_BAT)>(MAX_VOLTAGE_READ-10)) {
-	// 	delay(2000);
-	// 	if(ReadAvgValue(PIN_BAT) > (MAX_VOLTAGE_READ - 10)) {
-	// 		LogMsg(Utils::string_format("Charging! going sleep...");
-	// 		delay(5000);
-	// 		GoDeepSleep();
-	// 	}
-	// }
+	// Start power management
+	if(setupPMU() == false) {
+		LogMsg(Utils::string_format("Setting power error"));
+	}
 
 	LogMsg(Utils::string_format("Enabling transistor..."));
 	pinMode(PIN_ENABLE, OUTPUT); //We have the gps and the screen as the load of a transistor, so they fully disconnect when esp32 goes deep sleep
@@ -174,10 +195,8 @@ void setup()
 	pinMode(PIN_LED, OUTPUT);
 	digitalWrite(PIN_LED, LOW);
 
-	// Start power management
-	if(setupPMU() == false) {
-		LogMsg(Utils::string_format("Setting power error"));
-	}
+	LogMsg(Utils::string_format("Setup Serial GPS..."));
+	_SerialGPS.begin(9600);
 
 	//We will setup the modem only when we have a gps fix, so we can safe battery
 
@@ -223,27 +242,7 @@ void loop()
 			_TheScreenInfo.lat_deg = _TheFix.latitude();
 			_TheScreenInfo.lon_deg = _TheFix.longitude();
 			DrawScreen();
-			if(_FixedLoops == 0 && !_ModemInitialized) {
-					//Turn off everything...
-				digitalWrite(PIN_ENABLE, LOW);
-				if(EnableModem()) {
-					_ModemInitialized=true;
-					_GprsErrorCount=0;
-				}
-				else {
-					_GprsErrorCount++;
-					if(_GprsErrorCount >= MAX_GPRS_ERRORS) {
-						_TheScreenInfo.wifiState="GSM ERROR. RESET!!";
-						DrawScreen();
-						delay(3000);
-						ESP.restart();
-					}
-				}
-					//Turn off everything...
-				digitalWrite(PIN_ENABLE, HIGH);
-			}
 			_FixedLoops++;
-//			LogMsg(Utils::string_format("Fixed! loop=%d", _FixedLoops);
 		}
 		if(_TheFix.valid.speed) {
 			_TheScreenInfo.speed_kph = _TheFix.speed_kph();
@@ -262,7 +261,9 @@ void loop()
 	LedControl();
 
 	if(UpdateNeeded(now, dist) && _FixedLoops >= FIXED_LOOPS_B4_PUBLISH) {
-		LogMsg(Utils::string_format("Time 2 update!!"));
+		LogMsg(Utils::string_format("Position Update Needed!"));
+		AwakeModem();
+
 		_lastProcessMillis = now;
 		if(dist>MAX_DIST_OK) {
 			LogMsg(Utils::string_format("Last Point is farther than max distance allowed!! Ignoring it"));
@@ -284,14 +285,7 @@ void loop()
 				_LastPublishedPos.lat_deg = _TheFix.latitude();
 				_LastPublishedPos.lon_deg = _TheFix.longitude();
 				_LastPublishTime=now;
-				if(!ALWAYS_ON) {
-					_TheScreenInfo.wifiState = "DeepSleep...";
-					DrawScreen();
-					GoDeepSleep();
-				}
-				else {
-					_FixedLoops=0;
-				}
+				_FixedLoops=0;
 			}
 			else {
 				_TheScreenInfo.mqttState = "Publish Error";
@@ -300,26 +294,42 @@ void loop()
 		else {
 			LogMsg(Utils::string_format("GPRS Not Ready :("));
 			_GprsErrorCount++;
+			_modemGSM.poweroff();
+			_ModemInitialized=false;
 			if(_GprsErrorCount >= MAX_GPRS_ERRORS) {
 				_GprsErrorCount = 0;
-				_TheScreenInfo.wifiState = "RESET";
-				DrawScreen();
-				delay(3000);
-				ESP.restart();
+				RestartNOW();
 			}
 		}
 	}
 	else if(!_TheFix.valid.location && (now - _LastPublishTime) > FORCE_RESET_TIME) {
 		LogMsg(Utils::string_format("%dms without GPS!! RESETING"));
-		_TheScreenInfo.wifiState = "RESET";
-		DrawScreen();
-		delay(3000);
-		ESP.restart();
+		RestartNOW();
 	}
-	if(_ThePubSub.connected()) {
+	if(_ModemInitialized && _ThePubSub.connected()) {
 		_ThePubSub.loop(); //allow the pubsubclient to process incoming messages
 	}
 	DrawScreen();
+
+	if((now - _LastPublishTime) > SLEEPMODEM_NOUPT && _ModemInitialized && (now - _lastModemON) > UPDATE_TIME*2) {
+		LogMsg(Utils::string_format("%dms without a GPS update! Powering off the modem...", (int)(now - _LastPublishTime)));
+		SleepModem();
+	}
+
+	// if(_TheFix.valid.location && _LastPublishTime > 0 && (now - _lastLightSleep) > UPDATE_TIME && (now - _LastPublishTime) > UPDATE_TIME && _FixedLoops > FIXED_LOOPS_B4_PUBLISH * 2) {
+	// 	LogMsg(Utils::string_format("Entering Light Sleep"));
+	// 	delay(4000);
+	// 	// gpio_hold_en(GPIO_NUM_12);
+	// 	// gpio_deep_sleep_hold_en();
+	// 		//Turn off everything...
+	// 	digitalWrite(PIN_ENABLE, LOW);
+	// 	esp_sleep_enable_timer_wakeup(LSLEEP_SECS * uS_TO_S_FACTOR);
+	// 	esp_light_sleep_start();
+	// 	_lastLightSleep = millis();
+	// 	_FixedLoops=0;
+	// 		//Turn off everything...
+	// 	digitalWrite(PIN_ENABLE, HIGH);
+	// }
 
 	delay(50); //we dont want to run all the time? or we do?
 }
@@ -373,6 +383,16 @@ void DrawScreen()
 	} while(_u8g2.nextPage());
 }
 
+void RestartNOW()
+{
+	_TheScreenInfo.wifiState = "RESET";
+	DrawScreen();
+	delay(3000);
+	digitalWrite(PIN_ENABLE, LOW);
+	_modemGSM.poweroff();
+	ESP.restart();
+}
+
 void GoDeepSleep()
 {
 	LogMsg(Utils::string_format("Going to Sleep!!"));
@@ -399,13 +419,13 @@ void LedControl()
 	}
 	else if(!_LedON) {
 		bool turnOn = false;
-		if(_GprsErrorCount > 0 && _LedBlinks<BLINKS_GSMERROR && sinceChange > LED_BLINK_TIME) {
+		if(_GprsErrorCount > 0 && _LedBlinks<BLINKS_GSMERROR && sinceChange > LED_BLINK_TIME*2) {
 			turnOn = true;
 		}
-		else if(!_TheFix.valid.location && _LedBlinks<BLINKS_LOCATING && sinceChange > LED_BLINK_TIME) {
+		else if(!_TheFix.valid.location && _LedBlinks<BLINKS_LOCATING && sinceChange > LED_BLINK_TIME*2) {
 			turnOn = true;
 		}
-		else if(_TheFix.valid.location && _LedBlinks<BLINKS_FIXED && sinceChange > LED_BLINK_TIME) {
+		else if(_TheFix.valid.location && _LedBlinks<BLINKS_FIXED && sinceChange > LED_BLINK_TIME*2) {
 			turnOn = true;
 		}
 		if(!turnOn && sinceChange > LED_BLINK_OFF) {
@@ -439,9 +459,19 @@ bool EnableModem()
 	String modemInfo = _modemGSM.getModemInfo();
 	LogMsg(Utils::string_format("Modem: %s", modemInfo.c_str()));
 
-	//Initialize Wifi
+	//Initialize GSM
 	LogMsg(Utils::string_format("Initializing GSM/WiFi..."));
 	return setupGSM();
+}
+
+void TurnModemNetlight(bool on)
+{
+	if(on) {
+		_modemGSM.sendAT("+CNETLIGHT=1");
+	}
+	else {
+		_modemGSM.sendAT("+CNETLIGHT=0");
+	}
 }
 
 void setupModem()
@@ -526,20 +556,28 @@ bool verifyGPRSConnection()
 		if(!_modemGSM.waitForNetwork()) {
 			LogMsg(Utils::string_format("Network Failed"));
 			_modemGSM.restart();
-			_TheScreenInfo.wifiState = "Net Error";
-		}
-		else {
-			if(!_modemGSM.gprsConnect(APN)) {
-				LogMsg(Utils::string_format("GPRS Failed"));
-				_TheScreenInfo.wifiState = "GPRS Error";
+			if(!_modemGSM.waitForNetwork()) {
+				_TheScreenInfo.wifiState = "Net Error";
+				return false;
 			}
 			else {
-				result = true;
-				LogMsg(Utils::string_format("GPRS Connection OK"));
-				_TheScreenInfo.wifiConnected = true;
-				_TheScreenInfo.wifiState = "GPRS OK";
+				LogMsg(Utils::string_format("Modem registered to network OK"));
+				_TheScreenInfo.wifiState = "Net OK";
 			}
 		}
+		if(!_modemGSM.gprsConnect(APN)) {
+			LogMsg(Utils::string_format("GPRS Failed"));
+			_TheScreenInfo.wifiState = "GPRS Error";
+		}
+		else {
+			result = true;
+			LogMsg(Utils::string_format("GPRS Connection OK"));
+			_TheScreenInfo.wifiConnected = true;
+			_TheScreenInfo.wifiState = "GPRS OK";
+		}
+	}
+	if(result) {
+		TurnModemNetlight(false);
 	}
 	return result;
 }
@@ -599,7 +637,7 @@ uint16_t ReadAvgValue(uint8_t pin)
 			_NumVoltageReadings = 1;
 			_AccumVoltage = _LastVoltageRead;
 		}
-		LogMsg(Utils::string_format("Bat=%d", _LastVoltageRead), false);
+		LogMsg(Utils::string_format("Bat=%d Location=%s", _LastVoltageRead, _TheScreenInfo.gpsFix?"Fixed":"Fixing..."), false);
 	}
 
 	return _LastVoltageRead;
@@ -618,6 +656,7 @@ bool UpdateNeeded(unsigned long now, float &dist)
 	}
 
 	if(_LastPublishTime == 0 || _lastProcessMillis==0) {
+		dist=-1.0;
 		return true;
 	}
 
@@ -659,9 +698,62 @@ bool UpdateNeeded(unsigned long now, float &dist)
 		result=true;
 	}
 
-	LogMsg(Utils::string_format("Distance from last published point=%3.2f", dist), false);
+	LogMsg(Utils::string_format("Distance from last published point=%3.2f. FixesLoops=%d. CPU=%dMHz/%dMHz", dist, _FixedLoops, ESP.getCpuFreqMHz(), getCpuFrequencyMhz()), false);
 
 	return result;
+}
+
+void AwakeModem()
+{
+	if(!_ModemInitialized) {
+			//Turn off everything...
+		digitalWrite(PIN_ENABLE, LOW);
+		if(EnableModem()) {
+			_ModemInitialized=true;
+			_GprsErrorCount=0;
+			_lastModemON=millis();
+			TurnModemNetlight(false);
+		}
+		else {
+			_GprsErrorCount++;
+			if(_GprsErrorCount >= MAX_GPRS_ERRORS) {
+				_TheScreenInfo.wifiState="GSM ERROR. RESET!!";
+				DrawScreen();
+				SleepModem();
+				delay(1000);
+				ESP.restart();
+			}
+		}
+			//Turn on everything...
+		digitalWrite(PIN_ENABLE, HIGH);
+	}
+}
+
+void SleepModem()
+{
+//	bool res;
+
+	_ModemInitialized=false;
+	_clientGSM.stop();
+	_modemGSM.gprsDisconnect();
+	//_modemGSM.sleepEnable();
+	_modemGSM.poweroff();
+
+	// delay(100);
+
+	// // test modem response , res == 0 , modem is sleep
+	// res = _modemGSM.testAT();
+	// if(res==0) {
+	// 	LogMsg(Utils::string_format("MODEM IS NOW OFF"));
+	// }
+	// else {
+	// 	LogMsg(Utils::string_format("MODEM IS STILL AWAKE"));
+	// }
+
+//	Serial.println("Use DTR Pin Wakeup");
+//	pinMode(MODEM_DTR, OUTPUT);
+	//Set DTR Pin low , wakeup modem .
+//	digitalWrite(MODEM_DTR, LOW);
 }
 
 void ReadFromSerial()
@@ -679,6 +771,68 @@ void ReadFromSerial()
 			while(_TheLog && _TheLog.available()) {
 				Serial.write(_TheLog.readString().c_str());
 			}
+		}
+		else if(strcmp("RESET", msg.c_str()) == 0) {
+			LogMsg("Reseting!!", false);
+			delay(2000);
+			ESP.restart();
+		}
+		else if(strcmp("MODEMON", msg.c_str()) == 0) {
+			if(_ModemInitialized) {
+				LogMsg("The modem is already ON!!", false);
+			}
+			LogMsg("Turning the modem ON!!", false);
+			if(EnableModem()) {
+				LogMsg("Modem initialized OK!!", false);
+				_ModemInitialized = true;
+				_lastModemON=millis();
+				_GprsErrorCount = 0;
+			}
+			else {
+				LogMsg("Modem FAILED to initialize!!", false);
+				_ModemInitialized = false;
+				_GprsErrorCount++;
+			}
+		}
+		else if(strcmp("MODEMOFF", msg.c_str()) == 0) {
+			LogMsg("Putting the modem to sleep...", false);
+			SleepModem();
+		}
+		else if(strcmp("PUBLISH", msg.c_str()) == 0) {
+			float volts = (_LastVoltageRead * MAX_VOLTAGE) / (float)MAX_VOLTAGE_READ;
+			std::string msg = Utils::string_format("%d,%d,%f,%f,%d,%3.1f,%1.3f,%3.1f", TRACKER_ID, (NeoGPS::clock_t)_TheFix.dateTime,
+				_TheFix.latitude(), _TheFix.longitude(), _TheFix.altitude_cm() / 100, _TheFix.speed_kph(), volts, -2);
+			LogMsg(Utils::string_format("Publishing [%s]...", msg.c_str()), false);
+			if(_ThePubSub.publish(FEED_BABYTRACKER, msg.c_str(), true)) {
+				LogMsg("Publish OK", false);
+			}
+			else {
+				LogMsg("Publish FAILED", false);
+			}
+		}
+		else if(strcmp("SLEEP", msg.c_str()) == 0) {
+			LogMsg("Going LightSleep for 60s", false);
+			delay(1000);
+			esp_sleep_enable_timer_wakeup(60 * uS_TO_S_FACTOR);
+			esp_light_sleep_start();
+			LogMsg("Awoken!!", false);
+		}
+		else if(strcmp("DEEPSLEEP", msg.c_str()) == 0) {
+			LogMsg("Going DeepSleep for 60s", false);
+			esp_sleep_enable_timer_wakeup(60 * uS_TO_S_FACTOR);
+			esp_deep_sleep_start(); //this call does not return
+		}
+		else if(strcmp("GPRSON", msg.c_str()) == 0) {
+			LogMsg("Verifying GPRS/MQTT connection", false);
+			if(verifyGPRSConnection() && verifyMqttConnection()) {
+				LogMsg("GPRS && MQTT OK", false);
+			}
+			else {
+				LogMsg("Conexion FAILED :(", false);
+			}
+		}
+		else {
+			LogMsg("UNKNOWN COMMAND", false);
 		}
 	}
 }
